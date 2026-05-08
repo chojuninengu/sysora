@@ -30,9 +30,15 @@ export function barColor(pct: number): string {
 }
 
 export function healthColor(pct: number): string {
-  if (pct >= 80) return "bg-emerald-500";
+  if (pct >= 80) return "bg-brand-400";
   if (pct >= 50) return "bg-amber-400";
   return "bg-red-500";
+}
+
+export function healthPctColor(pct: number): string {
+  if (pct >= 80) return "text-brand-100";
+  if (pct >= 50) return "text-amber-400";
+  return "text-red-400";
 }
 
 export function healthLabel(pct: number): string {

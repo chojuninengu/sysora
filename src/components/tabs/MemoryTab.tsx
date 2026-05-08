@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect } from "react";
 import { Cpu, MemoryStick, HardDrive, Battery, Skull } from "lucide-react";
 import { api } from "@/lib/api";
-import { fmtBytes, barColor } from "@/lib/utils";
+import { fmtBytes, barColor, healthColor, healthPctColor } from "@/lib/utils";
 import { StatCard } from "@/components/layout/StatCard";
 import { useAppStore } from "@/store/app";
 
@@ -157,6 +157,10 @@ export function MemoryTab() {
           sub={battery?.present ? `Health ${(battery?.health_percent ?? 0).toFixed(0)}%` : "No battery"}
           pct={batCharge}
           icon={<Battery size={14} />}
+          colorFuncs={{
+            bar: healthColor,
+            text: healthPctColor
+          }}
         />
       </div>
 

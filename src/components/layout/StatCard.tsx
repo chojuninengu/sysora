@@ -6,10 +6,16 @@ interface StatCardProps {
   sub: string;
   pct: number;
   icon: React.ReactNode;
+  colorFuncs?: {
+    bar: (pct: number) => string;
+    text: (pct: number) => string;
+  };
 }
 
-export function StatCard({ label, value, sub, pct, icon }: StatCardProps) {
+export function StatCard({ label, value, sub, pct, icon, colorFuncs }: StatCardProps) {
   const clampedPct = Math.min(100, Math.max(0, pct));
+  const barClass = colorFuncs?.bar ? colorFuncs.bar(clampedPct) : barColor(clampedPct);
+  const textClass = colorFuncs?.text ? colorFuncs.text(clampedPct) : pctColor(clampedPct);
 
   return (
     <div className="card p-4 flex flex-col gap-2 animate-slide-up">
@@ -23,11 +29,11 @@ export function StatCard({ label, value, sub, pct, icon }: StatCardProps) {
       </div>
       <div className="h-1 rounded-full bg-white/5 overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ${barColor(clampedPct)}`}
+          className={`h-full rounded-full transition-all duration-700 ${barClass}`}
           style={{ width: `${clampedPct}%` }}
         />
       </div>
-      <span className={`text-xs font-medium ${pctColor(clampedPct)}`}>
+      <span className={`text-xs font-medium ${textClass}`}>
         {clampedPct.toFixed(0)}%
       </span>
     </div>

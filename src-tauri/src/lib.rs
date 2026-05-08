@@ -164,6 +164,11 @@ fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
     let mut groups: HashMap<String, ProcessInfo> = HashMap::new();
 
     for (pid, p) in sys.processes() {
+        // Skip threads on Linux to avoid double-counting shared memory
+        if p.thread_kind().is_some() {
+            continue;
+        }
+
         let mem = p.memory();
         let name = p.exe()
             .and_then(|path| path.file_name())
