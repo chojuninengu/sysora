@@ -312,6 +312,7 @@ pub fn run() {
 
             let _tray = TrayIconBuilder::new()
                 .menu(&menu)
+                .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Sysora — System Monitor")
                 .on_menu_event(move |app, event| match event.id().as_ref() {
                     "toggle" => {
