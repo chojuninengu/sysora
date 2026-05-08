@@ -163,9 +163,15 @@ fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
         .iter()
         .map(|(pid, p)| {
             let mem = p.memory();
+            // Use the executable name if available, otherwise fall back to the kernel-truncated name
+            let name = p.exe()
+                .and_then(|path| path.file_name())
+                .map(|os_str| os_str.to_string_lossy().to_string())
+                .unwrap_or_else(|| p.name().to_string_lossy().to_string());
+
             ProcessInfo {
                 pid: pid.as_u32(),
-                name: p.name().to_string_lossy().to_string(),
+                name,
                 memory_bytes: mem,
                 memory_label: fmt_bytes(mem),
                 cpu_usage: p.cpu_usage(),
