@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::sync::Mutex;
-use sysinfo::{Components, Disks, Networks, System};
+use sysinfo::{Disks, System};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -155,7 +155,7 @@ fn read_battery() -> BatteryInfo {
 
 /// Returns the top 60 processes sorted by memory usage descending.
 #[tauri::command]
-pub fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
+fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
     let mut sys = state.0.lock().unwrap();
     sys.refresh_all();
     let mut procs: Vec<ProcessInfo> = sys
@@ -181,7 +181,7 @@ pub fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
 
 /// Kills a process by PID. Returns true on success.
 #[tauri::command]
-pub fn kill_process(pid: u32, state: State<SysState>) -> bool {
+fn kill_process(pid: u32, state: State<SysState>) -> bool {
     let sys = state.0.lock().unwrap();
     if let Some(p) = sys.process(sysinfo::Pid::from_u32(pid)) {
         p.kill()
@@ -192,7 +192,7 @@ pub fn kill_process(pid: u32, state: State<SysState>) -> bool {
 
 /// Returns a full system snapshot (RAM, CPU, OS info, uptime).
 #[tauri::command]
-pub fn get_system_info(state: State<SysState>) -> SystemSnapshot {
+fn get_system_info(state: State<SysState>) -> SystemSnapshot {
     let mut sys = state.0.lock().unwrap();
     sys.refresh_all();
     let cpu_count = sys.cpus().len();
@@ -224,7 +224,7 @@ pub fn get_system_info(state: State<SysState>) -> SystemSnapshot {
 
 /// Returns all mounted disks.
 #[tauri::command]
-pub fn get_disks() -> Vec<DiskInfo> {
+fn get_disks() -> Vec<DiskInfo> {
     let disks = Disks::new_with_refreshed_list();
     disks
         .iter()
@@ -246,13 +246,13 @@ pub fn get_disks() -> Vec<DiskInfo> {
 
 /// Returns battery info (health, charge, cycles).
 #[tauri::command]
-pub fn get_battery() -> BatteryInfo {
+fn get_battery() -> BatteryInfo {
     read_battery()
 }
 
 /// Returns a lightweight snapshot for the tray popup.
 #[tauri::command]
-pub fn get_tray_snapshot(state: State<SysState>) -> TraySnapshot {
+fn get_tray_snapshot(state: State<SysState>) -> TraySnapshot {
     let mut sys = state.0.lock().unwrap();
     sys.refresh_all();
     let cpu_count = sys.cpus().len();
