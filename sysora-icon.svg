@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <!-- Background -->
+  <rect width="48" height="48" rx="12" fill="#26215C"/>
+
+  <!-- Top bar -->
+  <rect x="13" y="10" width="22" height="6" rx="3" fill="#7F77DD"/>
+  <!-- Top-left connector (S curves LEFT at top) -->
+  <rect x="13" y="10" width="4" height="17" rx="2" fill="#7F77DD"/>
+
+  <!-- Middle bar -->
+  <rect x="13" y="21" width="22" height="6" rx="3" fill="#AFA9EC"/>
+
+  <!-- Bottom-right connector (S curves RIGHT at bottom) -->
+  <rect x="31" y="21" width="4" height="17" rx="2" fill="#534AB7"/>
+  <!-- Bottom bar -->
+  <rect x="13" y="32" width="22" height="6" rx="3" fill="#534AB7"/>
+</svg>

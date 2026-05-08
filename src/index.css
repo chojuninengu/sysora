@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html, body, #root {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    user-select: none;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar        { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track  { background: transparent; }
+  ::-webkit-scrollbar-thumb  { background: #3C3489; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #534AB7; }
+}
+
+@layer utilities {
+  .text-gradient {
+    background: linear-gradient(135deg, #7F77DD 0%, #AFA9EC 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glow-brand {
+    box-shadow: 0 0 20px rgba(127, 119, 221, 0.15);
+  }
+
+  .card {
+    @apply bg-surface-800 border border-white/5 rounded-xl;
+  }
+
+  .card-hover {
+    @apply card transition-colors hover:border-brand-600/40 hover:bg-[#222030];
+  }
+}
