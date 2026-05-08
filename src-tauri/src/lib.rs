@@ -156,30 +156,43 @@ fn read_battery() -> BatteryInfo {
 /// Returns the top 60 processes sorted by memory usage descending.
 #[tauri::command]
 fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
+    use std::collections::HashMap;
+
     let mut sys = state.0.lock().unwrap();
     sys.refresh_all();
-    let mut procs: Vec<ProcessInfo> = sys
-        .processes()
-        .iter()
-        .map(|(pid, p)| {
-            let mem = p.memory();
-            // Use the executable name if available, otherwise fall back to the kernel-truncated name
-            let name = p.exe()
-                .and_then(|path| path.file_name())
-                .map(|os_str| os_str.to_string_lossy().to_string())
-                .unwrap_or_else(|| p.name().to_string_lossy().to_string());
 
-            ProcessInfo {
-                pid: pid.as_u32(),
-                name,
-                memory_bytes: mem,
-                memory_label: fmt_bytes(mem),
-                cpu_usage: p.cpu_usage(),
-                threads: p.thread_kind().map(|_| 1).unwrap_or(0),
-                status: format!("{:?}", p.status()),
-            }
+    let mut groups: HashMap<String, ProcessInfo> = HashMap::new();
+
+    for (pid, p) in sys.processes() {
+        let mem = p.memory();
+        let name = p.exe()
+            .and_then(|path| path.file_name())
+            .map(|os_str| os_str.to_string_lossy().to_string())
+            .unwrap_or_else(|| p.name().to_string_lossy().to_string());
+
+        let entry = groups.entry(name.clone()).or_insert(ProcessInfo {
+            pid: pid.as_u32(), // Keep the first PID found as the "representative"
+            name,
+            memory_bytes: 0,
+            memory_label: String::new(),
+            cpu_usage: 0.0,
+            threads: 0,
+            status: format!("{:?}", p.status()),
+        });
+
+        entry.memory_bytes += mem;
+        entry.cpu_usage += p.cpu_usage();
+        entry.threads += p.thread_kind().map(|_| 1).unwrap_or(0);
+    }
+
+    let mut procs: Vec<ProcessInfo> = groups
+        .into_values()
+        .map(|mut p| {
+            p.memory_label = fmt_bytes(p.memory_bytes);
+            p
         })
         .collect();
+
     procs.sort_by(|a, b| b.memory_bytes.cmp(&a.memory_bytes));
     procs.truncate(60);
     procs
