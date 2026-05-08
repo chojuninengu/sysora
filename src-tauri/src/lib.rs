@@ -319,6 +319,14 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .manage(SysState(Mutex::new(System::new_all())))
         .setup(|app| {
+            // Force the window icon for Linux dock
+            if let Some(window) = app.get_webview_window("main") {
+                let icon_bytes = include_bytes!("../icons/icon.png");
+                if let Ok(icon) = tauri::image::Image::from_bytes(icon_bytes) {
+                    let _ = window.set_icon(icon);
+                }
+            }
+
             let handle = app.handle().clone();
 
             // Tray menu
