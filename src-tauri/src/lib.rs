@@ -653,8 +653,8 @@ fn get_installed_apps() -> Vec<AppInfo> {
                                     let name = dict.get("CFBundleDisplayName")
                                         .or_else(|| dict.get("CFBundleName"))
                                         .and_then(|v| v.as_string())
-                                        .unwrap_or_else(|| entry.file_name().to_string_lossy().replace(".app", ""))
-                                        .to_string();
+                                        .map(|s| s.to_string())
+                                        .unwrap_or_else(|| entry.file_name().to_string_lossy().replace(".app", ""));
 
                                     let version = dict.get("CFBundleShortVersionString")
                                         .or_else(|| dict.get("CFBundleVersion"))
@@ -680,6 +680,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
                                         version,
                                         install_path: path.to_string_lossy().to_string(),
                                         icon_path,
+                                        size_bytes: 0,
                                     });
                                 }
                             }
@@ -721,6 +722,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
                             version,
                             install_path,
                             icon_path,
+                            size_bytes: 0,
                         });
                     }
                 }
@@ -737,7 +739,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
 }
 
 #[tauri::command]
-fn uninstall_app(id: String, path: String) -> Result<(), String> {
+fn uninstall_app(_id: String, path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
