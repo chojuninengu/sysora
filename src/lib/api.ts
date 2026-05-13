@@ -17,4 +17,5 @@ export const api = {
   getTraySnapshot: () => invoke<TraySnapshot>("get_tray_snapshot"),
   getInstalledApps: () => invoke<AppInfo[]>("get_installed_apps"),
   uninstallApp: (id: string, path: string) => invoke<void>("uninstall_app", { id, path }),
+  getAppIconDataUrl: (path: string) => invoke<string>("get_app_icon_data_url", { path }),
 };
