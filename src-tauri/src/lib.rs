@@ -739,7 +739,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
 }
 
 #[tauri::command]
-fn uninstall_app(_id: String, path: String) -> Result<(), String> {
+fn uninstall_app(id: String, path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
