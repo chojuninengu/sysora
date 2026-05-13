@@ -69,6 +69,18 @@ export interface AppSettings {
   start_minimized: boolean;
 }
 
+export interface DiskEntry {
+  path: string;
+  name: string;
+  size_bytes: number;
+  is_dir: boolean;
+}
+
+export interface ScanProgress {
+  scanned: number;
+  current_path: string;
+}
+
 export type TabId =
   | "memory"
   | "processes"
