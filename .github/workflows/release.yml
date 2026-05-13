@@ -60,7 +60,7 @@ jobs:
             - `.deb` — Debian/Ubuntu installer
             - `.AppImage` — portable, runs anywhere
 
-            See [README](https://github.com/chojuninengu/sysora#readme) for setup instructions.
+            See [README](https://github.com/The-SudoStart/sysora#readme) for setup instructions.
           releaseDraft:  true
           prerelease:    false
           includeDebug:  false
