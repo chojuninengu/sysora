@@ -106,6 +106,10 @@ export function MemoryTab() {
   const killMutation = useMutation({
     mutationFn: api.killProcess,
     onMutate: (pid) => setKillingPids((s) => new Set(s).add(pid)),
+    onError: (err) => {
+      console.error(err);
+      alert(`Could not kill process: ${err}`);
+    },
     onSettled: (_, __, pid) => {
       setKillingPids((s) => { const n = new Set(s); n.delete(pid); return n; });
       queryClient.invalidateQueries({ queryKey: ["processes"] });
