@@ -106,6 +106,20 @@ pub struct AppInfo {
     pub icon_path: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct DiskEntry {
+    pub path: String,
+    pub name: String,
+    pub size_bytes: u64,
+    pub is_dir: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ScanProgress {
+    pub scanned: u64,
+    pub current_path: String,
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn fmt_bytes(bytes: u64) -> String {
@@ -385,6 +399,101 @@ fn get_disks() -> Vec<DiskInfo> {
 #[tauri::command]
 fn get_battery() -> BatteryInfo {
     read_battery()
+}
+
+/// Scans a directory tree and returns the top 50 entries by size.
+/// Emits `scan-progress` events during the scan.
+#[tauri::command]
+fn scan_directory(app: AppHandle, path: String) -> Vec<DiskEntry> {
+    use walkdir::WalkDir;
+    use std::collections::HashMap;
+
+    let root = std::path::PathBuf::from(&path);
+    let mut file_sizes: Vec<(std::path::PathBuf, u64, bool)> = Vec::new();
+    let mut dir_sizes: HashMap<std::path::PathBuf, u64> = HashMap::new();
+    let mut scanned: u64 = 0;
+
+    // First pass: collect all files and their sizes
+    for entry in WalkDir::new(&root)
+        .follow_links(false)
+        .into_iter()
+        .filter_map(|e| e.ok()) // skip permission errors gracefully
+    {
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        scanned += 1;
+
+        // Emit progress every 200 entries to not flood the channel
+        if scanned % 200 == 0 {
+            let _ = app.emit("scan-progress", ScanProgress {
+                scanned,
+                current_path: entry.path().to_string_lossy().to_string(),
+            });
+        }
+
+        let entry_path = entry.path().to_path_buf();
+
+        if meta.is_file() {
+            let size = meta.len();
+            file_sizes.push((entry_path.clone(), size, false));
+
+            // Accumulate into all ancestor directories
+            let mut ancestor = entry_path.parent();
+            while let Some(dir) = ancestor {
+                if !dir.starts_with(&root) { break; }
+                *dir_sizes.entry(dir.to_path_buf()).or_insert(0) += size;
+                ancestor = dir.parent();
+            }
+        }
+    }
+
+    // Emit final progress
+    let _ = app.emit("scan-progress", ScanProgress {
+        scanned,
+        current_path: "done".to_string(),
+    });
+
+    // Build result: direct children of root only (top-level entries)
+    let mut entries: Vec<DiskEntry> = Vec::new();
+
+    // Add direct children dirs with accumulated sizes
+    for (dir, size) in &dir_sizes {
+        // Only include direct children of root
+        if dir.parent() == Some(root.as_path()) {
+            let name = dir.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            entries.push(DiskEntry {
+                path: dir.to_string_lossy().to_string(),
+                name,
+                size_bytes: *size,
+                is_dir: true,
+            });
+        }
+    }
+
+    // Add direct child files
+    for (file, size, _) in &file_sizes {
+        if file.parent() == Some(root.as_path()) {
+            let name = file.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            entries.push(DiskEntry {
+                path: file.to_string_lossy().to_string(),
+                name,
+                size_bytes: *size,
+                is_dir: false,
+            });
+        }
+    }
+
+    // Sort by size descending, return top 50
+    entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+    entries.truncate(50);
+    entries
 }
 
 /// Returns a lightweight snapshot for the tray popup.
