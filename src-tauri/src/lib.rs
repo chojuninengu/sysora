@@ -1,6 +1,7 @@
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::sync::Mutex;
-use sysinfo::{Disks, System};
+use sysinfo::{Disks, System, CpuExt, ProcessExt, SystemExt};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -30,9 +31,17 @@ impl Default for AppSettings {
     }
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct SnapPoint {
+    pub ts: u64,
+    pub cpu: f32,
+    pub ram_used: u64,
+}
+
 pub struct SysState {
     pub sys: Mutex<System>,
     pub settings: Mutex<AppSettings>,
+    pub history: Mutex<VecDeque<SnapPoint>>,
 }
 
 // ─── Data types (serialized to JSON for the frontend) ───────────────────────
@@ -774,6 +783,20 @@ fn uninstall_app(id: String, path: String) -> Result<(), String> {
     }
 }
 
+/// Deletes a file or directory permanently.
+#[tauri::command]
+fn delete_path(path: String) -> Result<(), String> {
+    let p = std::path::Path::new(&path);
+    if !p.exists() {
+        return Err("Path does not exist".into());
+    }
+    if p.is_dir() {
+        std::fs::remove_dir_all(p).map_err(|e| e.to_string())
+    } else {
+        std::fs::remove_file(p).map_err(|e| e.to_string())
+    }
+}
+
 fn get_settings_path(app: &AppHandle) -> std::path::PathBuf {
     app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("settings.json")
 }
@@ -1025,6 +1048,8 @@ pub fn run() {
             get_app_icon_data_url,
             get_settings,
             save_settings,
+            scan_directory,
+            delete_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");
