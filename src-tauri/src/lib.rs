@@ -51,7 +51,7 @@ pub struct DiskInfo {
     pub removable: bool,
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Default)]
 pub struct BatteryInfo {
     pub present: bool,
     pub charge_percent: f32,
@@ -100,64 +100,80 @@ fn fmt_bytes(bytes: u64) -> String {
 }
 
 fn read_battery() -> BatteryInfo {
-    // Platform-specific battery reading via sysinfo components
-    // Full implementation uses platform APIs; this is a safe cross-platform stub
-    // that reads what sysinfo exposes, then falls back to N/A gracefully.
     #[cfg(target_os = "linux")]
     {
         use std::fs;
         let base = "/sys/class/power_supply/BAT0";
-        let read = |f: &str| {
-            fs::read_to_string(format!("{}/{}", base, f))
-                .ok()
-                .and_then(|s| s.trim().parse::<u64>().ok())
-        };
-        let status_str = fs::read_to_string(format!("{}/status", base))
-            .unwrap_or_default()
-            .trim()
-            .to_string();
-        let charge_now = read("charge_now").or_else(|| read("energy_now"));
-        let charge_full = read("charge_full").or_else(|| read("energy_full"));
-        let charge_full_design =
-            read("charge_full_design").or_else(|| read("energy_full_design"));
-        let cycle_count = read("cycle_count").map(|v| v as u32);
-        let charge_pct = match (charge_now, charge_full) {
-            (Some(n), Some(f)) if f > 0 => (n as f32 / f as f32 * 100.0).min(100.0),
-            _ => 0.0,
-        };
-        let health_pct = match (charge_full, charge_full_design) {
-            (Some(f), Some(d)) if d > 0 => (f as f32 / d as f32 * 100.0).min(100.0),
-            _ => 0.0,
-        };
-        let present = std::path::Path::new(base).exists();
-        BatteryInfo {
-            present,
-            charge_percent: charge_pct,
-            health_percent: health_pct,
-            design_capacity_mwh: charge_full_design.map(|v| v / 1000),
-            current_capacity_mwh: charge_full.map(|v| v / 1000),
-            cycle_count,
-            status: if status_str.is_empty() {
-                "Unknown".to_string()
-            } else {
-                status_str
-            },
-            time_to_empty_mins: None,
+        if std::path::Path::new(base).exists() {
+            let read = |f: &str| {
+                fs::read_to_string(format!("{}/{}", base, f))
+                    .ok()
+                    .and_then(|s| s.trim().parse::<u64>().ok())
+            };
+            let status_str = fs::read_to_string(format!("{}/status", base))
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            let charge_now = read("charge_now").or_else(|| read("energy_now"));
+            let charge_full = read("charge_full").or_else(|| read("energy_full"));
+            let charge_full_design =
+                read("charge_full_design").or_else(|| read("energy_full_design"));
+            let cycle_count = read("cycle_count").map(|v| v as u32);
+            let charge_pct = match (charge_now, charge_full) {
+                (Some(n), Some(f)) if f > 0 => (n as f32 / f as f32 * 100.0).min(100.0),
+                _ => 0.0,
+            };
+            let health_pct = match (charge_full, charge_full_design) {
+                (Some(f), Some(d)) if d > 0 => (f as f32 / d as f32 * 100.0).min(100.0),
+                _ => 0.0,
+            };
+
+            return BatteryInfo {
+                present: true,
+                charge_percent: charge_pct,
+                health_percent: health_pct,
+                design_capacity_mwh: charge_full_design.map(|v| v / 1000),
+                current_capacity_mwh: charge_full.map(|v| v / 1000),
+                cycle_count,
+                status: if status_str.is_empty() { "Unknown".to_string() } else { status_str },
+                time_to_empty_mins: None,
+            };
         }
     }
-    #[cfg(not(target_os = "linux"))]
+
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        // macOS / Windows: return a stub; Phase 2 adds native battery APIs
-        BatteryInfo {
-            present: false,
-            charge_percent: 0.0,
-            health_percent: 0.0,
-            design_capacity_mwh: None,
-            current_capacity_mwh: None,
-            cycle_count: None,
-            status: "N/A".to_string(),
-            time_to_empty_mins: None,
+        if let Ok(manager) = battery::Manager::new() {
+            if let Ok(mut batteries) = manager.batteries() {
+                if let Some(Ok(bat)) = batteries.next() {
+                    let charge_pct = (bat.state_of_charge().value * 100.0).min(100.0);
+                    let energy_full = bat.energy_full().value;
+                    let energy_design = bat.energy_full_design().value;
+                    let health_pct = if energy_design > 0.0 {
+                        (energy_full / energy_design * 100.0).min(100.0)
+                    } else {
+                        100.0
+                    };
+
+                    return BatteryInfo {
+                        present: true,
+                        charge_percent: charge_pct,
+                        health_percent: health_pct,
+                        design_capacity_mwh: Some((energy_design / 3.6) as u64),
+                        current_capacity_mwh: Some((energy_full / 3.6) as u64),
+                        cycle_count: bat.cycle_count(),
+                        status: format!("{:?}", bat.state()),
+                        time_to_empty_mins: bat.time_to_empty().map(|t| (t.value / 60.0) as u64),
+                    };
+                }
+            }
         }
+    }
+
+    BatteryInfo {
+        present: false,
+        status: "N/A".to_string(),
+        ..Default::default()
     }
 }
 
