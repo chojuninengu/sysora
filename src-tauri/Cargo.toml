@@ -24,6 +24,7 @@ serde_json = "1"
 sysinfo = "0.33"
 tokio = { version = "1", features = ["full"] }
 walkdir = "2.5.0"
+base64 = "0.22"
 
 [profile.release]
 panic = "abort"
