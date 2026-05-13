@@ -5,6 +5,7 @@ import type {
   DiskInfo,
   BatteryInfo,
   TraySnapshot,
+  AppInfo,
 } from "@/types";
 
 export const api = {
@@ -14,4 +15,5 @@ export const api = {
   getDisks:     () => invoke<DiskInfo[]>("get_disks"),
   getBattery:   () => invoke<BatteryInfo>("get_battery"),
   getTraySnapshot: () => invoke<TraySnapshot>("get_tray_snapshot"),
+  getInstalledApps: () => invoke<AppInfo[]>("get_installed_apps"),
 };
