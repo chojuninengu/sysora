@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Shell } from "@/components/layout/Shell";
 import { useAppStore } from "@/store/app";
 import type { TabId } from "@/types";
@@ -9,7 +9,8 @@ export default function App() {
 
   // Listen for tray "System Info" / "Settings" menu navigation
   useEffect(() => {
-    const unlisten = listen<TabId>("navigate", (event) => {
+    const win = getCurrentWebviewWindow();
+    const unlisten = win.listen<TabId>("navigate", (event) => {
       setActiveTab(event.payload);
     });
     return () => { unlisten.then((fn) => fn()); };

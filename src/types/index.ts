@@ -61,6 +61,14 @@ export interface AppInfo {
   icon_path: string;
 }
 
+export interface AppSettings {
+  refresh_interval_secs: number;
+  launch_at_login: boolean;
+  ram_alert_threshold: number;
+  cpu_alert_threshold: number;
+  start_minimized: boolean;
+}
+
 export type TabId =
   | "memory"
   | "processes"

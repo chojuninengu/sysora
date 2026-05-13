@@ -9,7 +9,31 @@ use tauri::{
 use tokio::time::{sleep, Duration};
 
 // ─── Shared system state ────────────────────────────────────────────────────
-pub struct SysState(pub Mutex<System>);
+#[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
+pub struct AppSettings {
+    pub refresh_interval_secs: u64,
+    pub launch_at_login: bool,
+    pub ram_alert_threshold: f32,
+    pub cpu_alert_threshold: f32,
+    pub start_minimized: bool,
+}
+
+impl Default for AppSettings {
+    fn default() -> Self {
+        Self {
+            refresh_interval_secs: 3,
+            launch_at_login: false,
+            ram_alert_threshold: 85.0,
+            cpu_alert_threshold: 80.0,
+            start_minimized: false,
+        }
+    }
+}
+
+pub struct SysState {
+    pub sys: Mutex<System>,
+    pub settings: Mutex<AppSettings>,
+}
 
 // ─── Data types (serialized to JSON for the frontend) ───────────────────────
 
@@ -247,7 +271,7 @@ fn resolve_linux_icon(icon_name: &str) -> String {
 fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
     use std::collections::HashMap;
 
-    let mut sys = state.0.lock().unwrap();
+    let mut sys = state.sys.lock().unwrap();
     sys.refresh_all();
 
     let mut groups: HashMap<String, ProcessInfo> = HashMap::new();
@@ -295,7 +319,7 @@ fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
 /// Kills a process by PID. Returns true on success.
 #[tauri::command]
 fn kill_process(pid: u32, state: State<SysState>) -> bool {
-    let sys = state.0.lock().unwrap();
+    let sys = state.sys.lock().unwrap();
     if let Some(p) = sys.process(sysinfo::Pid::from_u32(pid)) {
         p.kill()
     } else {
@@ -306,7 +330,7 @@ fn kill_process(pid: u32, state: State<SysState>) -> bool {
 /// Returns a full system snapshot (RAM, CPU, OS info, uptime).
 #[tauri::command]
 fn get_system_info(state: State<SysState>) -> SystemSnapshot {
-    let mut sys = state.0.lock().unwrap();
+    let mut sys = state.sys.lock().unwrap();
     sys.refresh_all();
     let cpu_count = sys.cpus().len();
     let cpu_usage = if cpu_count > 0 {
@@ -366,7 +390,7 @@ fn get_battery() -> BatteryInfo {
 /// Returns a lightweight snapshot for the tray popup.
 #[tauri::command]
 fn get_tray_snapshot(state: State<SysState>) -> TraySnapshot {
-    let mut sys = state.0.lock().unwrap();
+    let mut sys = state.sys.lock().unwrap();
     sys.refresh_all();
     let cpu_count = sys.cpus().len();
     let cpu_usage = if cpu_count > 0 {
@@ -641,11 +665,105 @@ fn uninstall_app(id: String, path: String) -> Result<(), String> {
     }
 }
 
+fn get_settings_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("settings.json")
+}
+
+fn load_settings(app: &AppHandle) -> AppSettings {
+    let path = get_settings_path(app);
+    if let Ok(content) = std::fs::read_to_string(path) {
+        serde_json::from_str(&content).unwrap_or_default()
+    } else {
+        AppSettings::default()
+    }
+}
+
+fn save_settings_to_disk(app: &AppHandle, settings: &AppSettings) {
+    let path = get_settings_path(app);
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(content) = serde_json::to_string_pretty(settings) {
+        let _ = std::fs::write(path, content);
+    }
+}
+
+#[tauri::command]
+fn get_settings(state: State<SysState>) -> AppSettings {
+    state.settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn save_settings(app: AppHandle, state: State<SysState>, settings: AppSettings) {
+    *state.settings.lock().unwrap() = settings.clone();
+    save_settings_to_disk(&app, &settings);
+}
+
 // ─── Background refresh emitter ──────────────────────────────────────────────
 
 async fn start_refresh_loop(app: AppHandle) {
+    use tauri_plugin_notification::NotificationExt;
+    use std::time::{Instant, Duration as StdDuration};
+
+    let mut last_notification = Instant::now() - StdDuration::from_secs(60);
+
     loop {
-        sleep(Duration::from_secs(3)).await;
+        let (interval, ram_threshold, cpu_threshold) = {
+            let state = app.state::<SysState>();
+            let settings = state.settings.lock().unwrap();
+            (
+                settings.refresh_interval_secs,
+                settings.ram_alert_threshold,
+                settings.cpu_alert_threshold,
+            )
+        };
+
+        sleep(Duration::from_secs(interval)).await;
+
+        let state = app.state::<SysState>();
+        let mut sys = state.sys.lock().unwrap();
+        sys.refresh_all();
+
+        // Check CPU usage
+        let cpu_count = sys.cpus().len();
+        let cpu_usage = if cpu_count > 0 {
+            sys.cpus().iter().map(|c| c.cpu_usage()).sum::<f32>() / cpu_count as f32
+        } else {
+            0.0
+        };
+
+        // Check RAM usage
+        let total_mem = sys.total_memory();
+        let used_mem = sys.used_memory();
+        let ram_usage = if total_mem > 0 {
+            (used_mem as f32 / total_mem as f32) * 100.0
+        } else {
+            0.0
+        };
+
+        if last_notification.elapsed() > StdDuration::from_secs(60) {
+            let mut triggered = false;
+            if cpu_usage > cpu_threshold {
+                let _ = app.notification()
+                    .builder()
+                    .title("High CPU Usage Alert")
+                    .body(format!("CPU usage is at {:.1}%", cpu_usage))
+                    .show();
+                triggered = true;
+            } else if ram_usage > ram_threshold {
+                let _ = app.notification()
+                    .builder()
+                    .title("High RAM Usage Alert")
+                    .body(format!("RAM usage is at {:.1}%", ram_usage))
+                    .show();
+                triggered = true;
+            }
+
+            if triggered {
+                last_notification = Instant::now();
+            }
+        }
+
         let _ = app.emit("process-update", ());
     }
 }
@@ -682,17 +800,40 @@ fn get_app_icon_data_url(path: String) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
-        .manage(SysState(Mutex::new(System::new_all())))
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        .plugin(tauri_plugin_notification::init())
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                let _ = window.hide();
+                api.prevent_close();
+            }
+            _ => {}
+        })
         .setup(|app| {
+            let settings = load_settings(app.handle());
+            let start_minimized = settings.start_minimized;
+            let args: Vec<String> = std::env::args().collect();
+            let is_minimized = args.iter().any(|a| a == "--minimized") || start_minimized;
+
+            app.manage(SysState {
+                sys: Mutex::new(System::new_all()),
+                settings: Mutex::new(settings),
+            });
+
             // Force the window icon for Linux dock
             if let Some(window) = app.get_webview_window("main") {
                 let icon_bytes = include_bytes!("../icons/icon.png");
                 if let Ok(icon) = tauri::image::Image::from_bytes(icon_bytes) {
                     let _ = window.set_icon(icon);
                 }
+                
+                if !is_minimized {
+                    let _ = window.show();
+                }
             }
 
             let handle = app.handle().clone();
+            tauri::async_runtime::spawn(start_refresh_loop(handle));
 
             // Tray menu
             let toggle = MenuItem::with_id(app, "toggle", "Toggle window", true, None::<&str>)?;
@@ -726,14 +867,14 @@ pub fn run() {
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.show();
                             let _ = w.set_focus();
-                            let _ = app.emit("navigate", "system-info");
+                            let _ = w.emit("navigate", "system-info");
                         }
                     }
                     "settings" => {
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.show();
                             let _ = w.set_focus();
-                            let _ = app.emit("navigate", "settings");
+                            let _ = w.emit("navigate", "settings");
                         }
                     }
                     "quit" => {
@@ -761,9 +902,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Start background 3-second refresh loop
-            tauri::async_runtime::spawn(start_refresh_loop(handle));
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -776,6 +914,8 @@ pub fn run() {
             get_installed_apps,
             uninstall_app,
             get_app_icon_data_url,
+            get_settings,
+            save_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");
