@@ -14,7 +14,7 @@ import type {
 
 export const api = {
   getProcesses: () => invoke<ProcessInfo[]>("get_processes"),
-  killProcess: (pid: number) => invoke<boolean>("kill_process", { pid }),
+  killProcess: (pid: number) => invoke<void>("kill_process", { pid }),
   getSystemInfo: () => invoke<SystemSnapshot>("get_system_info"),
   getDisks: () => invoke<DiskInfo[]>("get_disks"),
   getBattery: () => invoke<BatteryInfo>("get_battery"),
