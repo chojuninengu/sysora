@@ -74,6 +74,7 @@ pub struct TraySnapshot {
 
 #[derive(Debug, Serialize, Clone, Default)]
 pub struct AppInfo {
+    pub id: String,
     pub name: String,
     pub version: String,
     pub install_path: String,
@@ -336,6 +337,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
                 if entry.path().extension().map(|s| s == "desktop").unwrap_or(false) {
                     if let Ok(content) = fs::read_to_string(entry.path()) {
                         let mut app = AppInfo {
+                            id: entry.file_name().to_string_lossy().to_string(),
                             install_path: entry.path().to_string_lossy().to_string(),
                             ..Default::default()
                         };
@@ -389,6 +391,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
                     if path.extension().map(|s| s == "app").unwrap_or(false) {
                         let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
                         apps.push(AppInfo {
+                            id: name.clone(),
                             name,
                             install_path: path.to_string_lossy().to_string(),
                             ..Default::default()
@@ -411,6 +414,67 @@ fn get_installed_apps() -> Vec<AppInfo> {
     apps.dedup_by(|a, b| a.name == b.name && a.install_path == b.install_path);
     
     apps
+}
+
+#[tauri::command]
+fn uninstall_app(id: String, path: String) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::process::Command;
+        
+        if path.contains("flatpak") {
+            let flatpak_id = id.strip_suffix(".desktop").unwrap_or(&id);
+            let status = Command::new("flatpak")
+                .args(["uninstall", "-y", flatpak_id])
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() { return Ok(()); }
+            return Err("Flatpak uninstallation failed".into());
+        } else if path.contains("snap") {
+            let snap_name = id.strip_suffix(".desktop").unwrap_or(&id);
+            let status = Command::new("pkexec")
+                .args(["snap", "remove", snap_name])
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() { return Ok(()); }
+            return Err("Snap uninstallation failed".into());
+        } else {
+            let output = Command::new("dpkg")
+                .args(["-S", &path])
+                .output()
+                .map_err(|e| e.to_string())?;
+            
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Some(pkg) = stdout.split(':').next() {
+                    let status = Command::new("pkexec")
+                        .args(["apt-get", "remove", "-y", pkg.trim()])
+                        .status()
+                        .map_err(|e| e.to_string())?;
+                    if status.success() { return Ok(()); }
+                    return Err("Apt uninstallation failed".into());
+                }
+            }
+            return Err("Could not identify package manager for this app".into());
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::process::Command;
+        let status = Command::new("osascript")
+            .args(["-e", &format!("tell application \"Finder\" to delete POSIX file \"{}\"", path)])
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() { return Ok(()); }
+        return Err("macOS uninstallation failed".into());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let _ = (id, path);
+        Err("Uninstallation not yet implemented for Windows".into())
+    }
 }
 
 // ─── Background refresh emitter ──────────────────────────────────────────────
@@ -519,6 +583,7 @@ pub fn run() {
             get_battery,
             get_tray_snapshot,
             get_installed_apps,
+            uninstall_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");
