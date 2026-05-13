@@ -1,14 +1,34 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppWindow, Info, Trash2, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/app";
+import { AppDetailsModal } from "@/components/modals/AppDetailsModal";
 import type { AppInfo } from "@/types";
+
+function AppIcon({ icon_path, className = "w-6 h-6 object-contain" }: { icon_path?: string; className?: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (icon_path) {
+      api.getAppIconDataUrl(icon_path)
+        .then(setSrc)
+        .catch(() => setSrc(null));
+    } else {
+      setSrc(null);
+    }
+  }, [icon_path]);
+
+  if (!src) return <AppWindow size={20} className="text-brand-400" />;
+
+  return <img src={src} alt="" className={className} />;
+}
 
 export function AppsTab() {
   const queryClient = useQueryClient();
   const searchQuery = useAppStore((s) => s.searchQuery);
   const [uninstallingId, setUninstallingId] = useState<string | null>(null);
+  const [selectedApp, setSelectedApp] = useState<AppInfo | null>(null);
 
   const { data: apps = [], isLoading } = useQuery({
     queryKey: ["apps"],
@@ -22,6 +42,7 @@ export function AppsTab() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["apps"] });
       setUninstallingId(null);
+      setSelectedApp(null);
     },
     onError: (err: any) => {
       alert(`Uninstallation failed: ${err}`);
@@ -41,6 +62,15 @@ export function AppsTab() {
 
   return (
     <div className="flex flex-col h-full gap-4">
+      {/* Modals */}
+      {selectedApp && (
+        <AppDetailsModal 
+          app={selectedApp} 
+          onClose={() => setSelectedApp(null)}
+          onUninstall={handleUninstall}
+        />
+      )}
+
       <div className="flex items-center justify-between px-1">
         <div>
           <h2 className="text-lg font-semibold text-white/90">Installed Applications</h2>
@@ -71,13 +101,18 @@ export function AppsTab() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pb-4">
             {filtered.map((app) => {
               const isWorking = uninstallingId === app.id;
+
               return (
                 <div 
                   key={`${app.name}-${app.install_path}`} 
                   className={`card-hover group p-3 flex items-center gap-3 relative ${isWorking ? "opacity-60 pointer-events-none" : ""}`}
                 >
-                  <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center text-brand-400 group-hover:bg-brand-500/10 transition-colors flex-shrink-0">
-                    {isWorking ? <Loader2 size={20} className="animate-spin" /> : <AppWindow size={20} />}
+                  <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-brand-500/10 transition-colors flex-shrink-0 overflow-hidden">
+                    {isWorking ? (
+                      <Loader2 size={20} className="animate-spin text-brand-400" />
+                    ) : (
+                      <AppIcon icon_path={app.icon_path} />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0 pr-12">
                     <h3 className="text-sm font-medium text-white/80 truncate group-hover:text-white transition-colors">
@@ -98,6 +133,7 @@ export function AppsTab() {
                   
                   <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                     <button 
+                      onClick={() => setSelectedApp(app)}
                       title="View Details"
                       className="p-1.5 rounded-md hover:bg-white/5 text-white/30 hover:text-brand-400 transition-all"
                     >
