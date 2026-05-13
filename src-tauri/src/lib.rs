@@ -339,14 +339,22 @@ fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
     procs
 }
 
-/// Kills a process by PID. Returns true on success.
+/// Kills a process by PID. Returns success or an error message.
 #[tauri::command]
-fn kill_process(pid: u32, state: State<SysState>) -> bool {
-    let sys = state.sys.lock().unwrap();
+fn kill_process(pid: u32, state: State<SysState>) -> Result<(), String> {
+    let mut sys = state.sys.lock().unwrap();
+    
+    // Refresh only the processes to get an up-to-date PID list
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    
     if let Some(p) = sys.process(sysinfo::Pid::from_u32(pid)) {
-        p.kill()
+        if p.kill() {
+            Ok(())
+        } else {
+            Err("Failed to kill process (permission denied or system protected)".to_string())
+        }
     } else {
-        false
+        Err(format!("Process with PID {} not found or already terminated", pid))
     }
 }
 
