@@ -66,7 +66,7 @@ export function Sidebar() {
 
       {/* Version footer */}
       <div className="px-4 py-3 border-t border-white/5">
-        <p className="text-[10px] text-white/20">v0.1.0 · Phase 1</p>
+        <p className="text-[10px] text-white/20">v0.2.0 · Phase 2 Stable</p>
       </div>
     </aside>
   );

@@ -6,23 +6,39 @@ Built with **Rust + Tauri v2** on the backend and **React 19 + Vite + Tailwind C
 
 ---
 
-## Screenshots
+## 📥 Download Latest Release
 
-### Dashboard — Memory Monitor
-The main view shows live processes sorted by RAM usage, with a Kill button per process and stat cards for RAM, CPU, Disk, and Battery at the top.
+Get the latest stable version (Phase 2) for your operating system:
 
-![Memory Monitor](docs/screenshots/memory-monitor.png)
+| Platform | Installer | Portability |
+|---|---|---|
+| **Linux (Ubuntu/Debian)** | [`.deb`](https://github.com/The-SudoStart/sysora/releases/latest) | [`.AppImage`](https://github.com/The-SudoStart/sysora/releases/latest) |
+| **macOS** | [`.dmg`](https://github.com/The-SudoStart/sysora/releases/latest) | Native (Universal) |
+| **Windows** | [`.msi`](https://github.com/The-SudoStart/sysora/releases/latest) | [`.exe`](https://github.com/The-SudoStart/sysora/releases/latest) |
 
-### Tray Popup
-Click the tray icon to see a quick CPU/RAM/Disk/Battery health snapshot — without opening the full window.
+---
 
-![Tray Popup](docs/screenshots/tray-popup.png)
+## 🚀 Features (Phase 2 Stable)
+
+### 📊 Real-time Monitoring
+- **Resource Pulse**: Live CPU and RAM usage history sparklines (last 60s).
+- **Process Manager**: Kill hungry processes with one click, search by name, and sort by memory usage.
+- **Stat Cards**: Instant glance at RAM, CPU, Disk, and Battery health/status.
+
+### 💾 Storage & Files
+- **Disk usage**: Monitor all mounted partitions and removable drives.
+- **Deep Scanner**: Find what's eating your space! Scan any directory to find the largest files and folders.
+- **Safe Purge**: Delete heavy files/folders directly from the scanner with confirmation.
+
+### ⚙️ App Management & Settings
+- **Installed Apps**: List and manage installed applications.
+- **Persistence**: Save your preferences for refresh rates and alert thresholds.
+- **Tray Power**: Complete control from the system tray: quick specs, settings, and one-click toggle.
+- **Native Experience**: "Close to Tray" and "Start minimized" support.
 
 ---
 
 ## Architecture
-
-### System overview
 
 ```
 ┌──────────────────────────────────────────────────────┐
@@ -32,64 +48,30 @@ Click the tray icon to see a quick CPU/RAM/Disk/Battery health snapshot — with
                    │ invoke() / emit()  (Tauri IPC)
 ┌──────────────────▼───────────────────────────────────┐
 │              Tauri v2 bridge                          │
-│   Commands: get_processes · kill_process · get_sys    │
-│   Events:   process-update (emitted every 3s)         │
+│   Commands: scan_directory · kill_process · settings  │
+│   Events:   scan-progress · process-update            │
 │   Tray:     toggle · system-info · settings · quit    │
-└──────────────────┬───────────────────────────────────┘
+└──────────────────┬───────────────────────────────────┐
                    │
 ┌──────────────────▼───────────────────────────────────┐
 │              Rust backend                             │
-│   sysinfo crate  │  Process killer  │  Battery reader │
+│   sysinfo crate  │  WalkDir scanner  │  Battery reader│
 │   /proc · WMI · sysctl (cross-platform OS APIs)       │
 └───────────────────────────────────────────────────────┘
         Runs on Ubuntu · macOS · Windows
-```
-
-### Data flow
-
-```
-OS kernel ──► sysinfo crate ──► Tokio loop (3s) ──► serde_json ──► Tauri IPC ──► React UI
-                                                                                     │
-                                              kill_process(pid) ◄────────────────────┘
-                                              (user clicks Kill)
-```
-
-### CI/CD pipeline
-
-```
-git push --tags
-        │
-        ▼
-GitHub Actions: release.yml
-        │
-   ┌────┴─────────────────────┐
-   │           │              │
-   ▼           ▼              ▼
-ubuntu-22.04  macos-latest  windows-latest
-.deb          .dmg           .msi
-.AppImage    (universal)     .exe
-   │           │              │
-   └────┬──────┘──────────────┘
-        ▼
-  GitHub Releases (draft)
 ```
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology | Purpose |
-|---|---|---|
-| Backend | **Rust** | Native system access, memory safety, speed |
-| Desktop framework | **Tauri v2** | Cross-platform shell, tray icon, IPC bridge |
-| System info | **`sysinfo` crate** | Processes, RAM, CPU, disk, battery |
-| Async | **Tokio** | Background 3-second refresh loop |
-| Serialization | **`serde` + `serde_json`** | Rust ↔ TypeScript data bridge |
-| Frontend | **React 19 + Vite** | Fast HMR dev, component tree |
-| Styling | **Tailwind CSS** | Utility-first dark theme |
-| State | **Zustand** | Global tab and search state |
-| Data fetching | **TanStack Query** | Poll backend, cache, refetch on event |
-| CI/CD | **GitHub Actions** | 3-platform release builds |
+| Layer | Technology |
+|---|---|
+| **Backend** | Rust, Tauri v2 |
+| **Frontend** | React 19, Vite, Tailwind CSS |
+| **State** | Zustand, TanStack Query |
+| **Charts** | Recharts |
+| **Icons** | Lucide React |
 
 ---
 
@@ -99,145 +81,61 @@ ubuntu-22.04  macos-latest  windows-latest
 sysora/
 ├── src/                        # React frontend
 │   ├── components/
-│   │   ├── layout/
-│   │   │   ├── Shell.tsx       # Root layout
-│   │   │   ├── Sidebar.tsx     # Nav sidebar
-│   │   │   ├── TopBar.tsx      # Search + live indicator
-│   │   │   └── StatCard.tsx    # RAM/CPU/Disk/Battery cards
-│   │   └── tabs/
-│   │       ├── MemoryTab.tsx   # ✅ Phase 1 — live processes + kill
-│   │       ├── ProcessesTab.tsx # ✅ Phase 1 — sortable full list
-│   │       ├── DiskTab.tsx     # ✅ Phase 1 — disk usage
-│   │       ├── SystemInfoTab.tsx # ✅ Phase 1 — specs + battery health
-│   │       ├── AppsTab.tsx     # 🔲 Phase 2
-│   │       └── SettingsTab.tsx # 🔲 Phase 2
-│   ├── lib/
-│   │   ├── api.ts              # All Tauri invoke() calls
-│   │   └── utils.ts            # fmtBytes, fmtUptime, color helpers
-│   ├── store/
-│   │   └── app.ts              # Zustand store
-│   ├── types/
-│   │   └── index.ts            # Shared TypeScript types
-│   ├── App.tsx
-│   ├── main.tsx
-│   └── index.css
-├── src-tauri/
-│   ├── src/
-│   │   ├── main.rs             # Entrypoint
-│   │   └── lib.rs              # All Tauri commands + tray setup
-│   ├── Cargo.toml
-│   ├── build.rs
-│   └── tauri.conf.json
-├── .github/
-│   └── workflows/
-│       └── release.yml         # CI/CD — Ubuntu + macOS + Windows
-├── index.html
-├── package.json
-├── vite.config.ts
-├── tailwind.config.js
-├── tsconfig.json
-└── LICENSE
+│   │   ├── charts/             # History graphs
+│   │   ├── tabs/               # Memory, Apps, Disk, Settings
+│   │   └── layout/             # Shell, Sidebar, StatCards
+├── src-tauri/                  # Rust backend
+│   ├── src/lib.rs              # Core logic & Commands
+│   └── capabilities/           # Security & Permissions
+├── images/                     # Project assets (Logo, Icons)
+└── .github/workflows/          # CI/CD Release pipeline
 ```
 
 ---
 
-## Getting Started
+## Getting Started (Dev)
 
 ### Prerequisites
-
-| Tool | Version | Install |
-|---|---|---|
-| Node.js | ≥ 20 | [nodejs.org](https://nodejs.org) |
-| Rust | stable | `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` |
-| Tauri CLI | v2 | `npm install --save-dev @tauri-apps/cli@^2` |
-
-**Ubuntu only — system libraries required:**
-```bash
-sudo apt-get update && sudo apt-get install -y \
-  libwebkit2gtk-4.1-dev libappindicator3-dev \
-  librsvg2-dev patchelf libssl-dev pkg-config
-```
-
-**macOS only:**
-```bash
-xcode-select --install
-```
-
----
+- **Node.js** ≥ 20
+- **Rust** (stable)
+- **Tauri v2 CLI** (`npm install -g @tauri-apps/cli`)
 
 ### Run in development
 
 ```bash
 # 1. Clone the repo
-git clone https://github.com/chojuninengu/sysora.git
+git clone https://github.com/The-SudoStart/sysora.git
 cd sysora
 
-# 2. Install frontend dependencies
+# 2. Install dependencies
 npm install
 
-# 3. Add a placeholder tray icon (required for Tauri to start)
-mkdir -p src-tauri/icons
-# Copy any 32x32 PNG as icon.png — replace with real icon later
-cp /path/to/any-icon.png src-tauri/icons/icon.png
-
-# 4. Start dev server (hot-reloads both React and Rust)
+# 3. Start dev server
 npm run tauri dev
 ```
-
-The app window opens automatically. The tray icon appears in your system tray.
-
----
-
-### Build for production
-
-```bash
-npm run tauri build
-```
-
-Output artifacts are in `src-tauri/target/release/bundle/`:
-- **Ubuntu:** `deb/sysora_*.deb` and `appimage/sysora_*.AppImage`
-- **macOS:** `dmg/Sysora_*.dmg`
-- **Windows:** `msi/Sysora_*.msi` and `nsis/Sysora_*.exe`
-
----
-
-### Release a new version
-
-```bash
-# Bump version in package.json and src-tauri/tauri.conf.json + Cargo.toml, then:
-git tag v0.2.0
-git push origin v0.2.0
-```
-
-GitHub Actions picks up the tag and starts three parallel build jobs. Once complete, artifacts appear as a draft release on GitHub — review and publish.
 
 ---
 
 ## Feature Roadmap
 
-### ✅ Phase 1 — Foundation (current)
-- [x] Tauri 2 + React 19 + Vite + Tailwind scaffold
-- [x] Tray icon with toggle window / system info / quit
-- [x] Memory Monitor — live process list sorted by RAM, Kill button per process
-- [x] Process Manager — full sortable process list with search
-- [x] Disk Scanner — all mounted disks with usage bars
-- [x] System Info — OS, CPU, RAM, uptime, battery health (design capacity vs current)
-- [x] Quick Spec Summary panel — copy/share machine specs
-- [x] GitHub Actions CI — Ubuntu + macOS + Windows release builds
+### ✅ Phase 1 — Foundation
+- [x] Live process list + Kill button
+- [x] Disk usage bars
+- [x] System specs + Battery health
+- [x] Tray popup snapshot
 
-### 🔲 Phase 2 — Management
-- [ ] App Manager — list installed applications, uninstall from UI
-- [ ] Settings — refresh rate, startup on login, notification thresholds
-- [ ] Battery: macOS and Windows native battery API support
-- [ ] Disk file scanner — show largest files and folders (home / root)
-- [ ] CPU history graph (last 60s sparkline)
+### ✅ Phase 2 — Management (Current)
+- [x] **App Manager**: List installed applications.
+- [x] **Settings**: Refresh rate, startup behavior, and persistence.
+- [x] **Disk Scanner**: Find largest files/folders with deletion support.
+- [x] **Resource History**: 60s CPU/RAM chart in Memory tab.
+- [x] **Persistence**: Save user settings to JSON.
 
 ### 🔲 Phase 3 — Polish
-- [ ] Notifications — alert when RAM or CPU crosses threshold
-- [ ] Auto-launch on login (all platforms)
-- [ ] Sysora branded icon + splash screen
-- [ ] Export system report as PDF
-- [ ] Dark/light theme toggle
+- [ ] Notifications: Alert when RAM/CPU crosses threshold.
+- [ ] Branded icon + Splash screen.
+- [ ] Export system report as PDF.
+- [ ] Full Windows uninstallation logic.
 
 ---
 
@@ -258,15 +156,13 @@ This is read from `/sys/class/power_supply/BAT0/` on Linux (`energy_full` vs `en
 
 ## Contributing
 
-Pull requests are welcome! For major changes, please open an issue first.
-
 1. Fork the repo
 2. Create a feature branch: `git checkout -b feat/my-feature`
-3. Commit your changes: `git commit -m "feat: add my feature"`
-4. Push and open a PR against `main`
+3. Commit changes: `git commit -m "feat: add feature"`
+4. Open a PR against `main`
 
 ---
 
 ## License
 
-[MIT](LICENSE) © 2024 chojuninengu
+[MIT](LICENSE) © 2024 [The SudoStart](https://github.com/The-SudoStart)

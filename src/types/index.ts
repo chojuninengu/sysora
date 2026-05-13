@@ -52,6 +52,41 @@ export interface TraySnapshot {
   battery: BatteryInfo;
 }
 
+export interface AppInfo {
+  id: string;
+  name: string;
+  version: string;
+  install_path: string;
+  size_bytes: number;
+  icon_path: string;
+}
+
+export interface AppSettings {
+  refresh_interval_secs: number;
+  launch_at_login: boolean;
+  ram_alert_threshold: number;
+  cpu_alert_threshold: number;
+  start_minimized: boolean;
+}
+
+export interface DiskEntry {
+  path: string;
+  name: string;
+  size_bytes: number;
+  is_dir: boolean;
+}
+
+export interface ScanProgress {
+  scanned: number;
+  current_path: string;
+}
+
+export interface HistoryPoint {
+  ts: number;
+  cpu: number;
+  ram_used: number;
+}
+
 export type TabId =
   | "memory"
   | "processes"

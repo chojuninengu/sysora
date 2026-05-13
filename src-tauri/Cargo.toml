@@ -1,6 +1,6 @@
 [package]
 name = "sysora"
-version = "0.1.0"
+version = "0.2.0"
 description = "Sysora — cross-platform system monitor & manager"
 authors = ["chojuninengu"]
 edition = "2021"
@@ -19,10 +19,19 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-ico", "image-png"] }
 tauri-plugin-shell = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-notification = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sysinfo = "0.33"
 tokio = { version = "1", features = ["full"] }
+walkdir = "2.5.0"
+base64 = "0.22"
+battery = "0.7.0"
+[target.'cfg(target_os = "windows")'.dependencies]
+winreg = "0.52"
+[target.'cfg(target_os = "macos")'.dependencies]
+plist = "1.7"
 
 [profile.release]
 panic = "abort"

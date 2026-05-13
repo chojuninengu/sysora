@@ -6,6 +6,7 @@ import { Cpu, MemoryStick, HardDrive, Battery, Skull } from "lucide-react";
 import { api } from "@/lib/api";
 import { fmtBytes, barColor, healthColor, healthPctColor } from "@/lib/utils";
 import { StatCard } from "@/components/layout/StatCard";
+import { HistoryChart } from "@/components/charts/HistoryChart";
 import { useAppStore } from "@/store/app";
 
 function ProcessRow({
@@ -105,6 +106,10 @@ export function MemoryTab() {
   const killMutation = useMutation({
     mutationFn: api.killProcess,
     onMutate: (pid) => setKillingPids((s) => new Set(s).add(pid)),
+    onError: (err) => {
+      console.error(err);
+      alert(`Could not kill process: ${err}`);
+    },
     onSettled: (_, __, pid) => {
       setKillingPids((s) => { const n = new Set(s); n.delete(pid); return n; });
       queryClient.invalidateQueries({ queryKey: ["processes"] });
@@ -163,6 +168,8 @@ export function MemoryTab() {
           }}
         />
       </div>
+
+      <HistoryChart />
 
       {/* Process table */}
       <div className="card overflow-hidden">
