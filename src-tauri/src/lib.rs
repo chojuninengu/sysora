@@ -161,6 +161,69 @@ fn read_battery() -> BatteryInfo {
     }
 }
 
+fn resolve_linux_icon(icon_name: &str) -> String {
+    if icon_name.is_empty() { return String::new(); }
+    if icon_name.starts_with('/') {
+        if std::path::Path::new(icon_name).exists() {
+            return icon_name.to_string();
+        }
+        return String::new();
+    }
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let base_paths = vec![
+        format!("{}/.local/share/icons", home),
+        "/usr/share/icons".to_string(),
+        "/usr/share/pixmaps".to_string(),
+    ];
+
+    let extensions = vec!["svg", "png", "xpm", "jpg"];
+    let sizes = vec!["scalable", "256x256", "128x128", "64x64", "48x48", "32x32", "24x24", "16x16"];
+
+    for base in &base_paths {
+        let base_path = std::path::Path::new(base);
+        if !base_path.exists() { continue; }
+
+        // 1. Check direct match in pixmaps or local icons
+        for ext in &extensions {
+            let p = base_path.join(format!("{}.{}", icon_name, ext));
+            if p.exists() { return p.to_string_lossy().to_string(); }
+        }
+        let direct = base_path.join(icon_name);
+        if direct.exists() && direct.is_file() {
+            return direct.to_string_lossy().to_string();
+        }
+
+        // 2. Search through themes
+        if let Ok(themes) = std::fs::read_dir(base) {
+            for theme in themes.filter_map(|e| e.ok()) {
+                let theme_path = theme.path();
+                if !theme_path.is_dir() { continue; }
+
+                for size in &sizes {
+                    let apps_dir = theme_path.join(size).join("apps");
+                    if apps_dir.exists() {
+                        for ext in &extensions {
+                            let p = apps_dir.join(format!("{}.{}", icon_name, ext));
+                            if p.exists() { return p.to_string_lossy().to_string(); }
+                        }
+                    }
+                    // Try with @2x suffix
+                    let apps_dir_2x = theme_path.join(format!("{}@2x", size)).join("apps");
+                    if apps_dir_2x.exists() {
+                        for ext in &extensions {
+                            let p = apps_dir_2x.join(format!("{}.{}", icon_name, ext));
+                            if p.exists() { return p.to_string_lossy().to_string(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    String::new()
+}
+
 // ─── Tauri commands ──────────────────────────────────────────────────────────
 
 /// Returns the top 60 processes sorted by memory usage descending.
@@ -361,7 +424,8 @@ fn get_installed_apps() -> Vec<AppInfo> {
                             if line.starts_with("Name=") {
                                 app.name = line.replace("Name=", "").trim().to_string();
                             } else if line.starts_with("Icon=") {
-                                app.icon_path = line.replace("Icon=", "").trim().to_string();
+                                let icon_name = line.replace("Icon=", "").trim().to_string();
+                                app.icon_path = resolve_linux_icon(&icon_name);
                             } else if line.starts_with("Version=") {
                                 app.version = line.replace("Version=", "").trim().to_string();
                             } else if line == "NoDisplay=true" {
@@ -486,6 +550,29 @@ async fn start_refresh_loop(app: AppHandle) {
     }
 }
 
+#[tauri::command]
+fn get_app_icon_data_url(path: String) -> Result<String, String> {
+    if path.is_empty() { return Ok(String::new()); }
+    
+    use base64::{Engine as _, engine::general_purpose};
+    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    let b64 = general_purpose::STANDARD.encode(bytes);
+    
+    let path_lc = path.to_lowercase();
+    let mime = if path_lc.ends_with(".svg") {
+        "image/svg+xml"
+    } else if path_lc.ends_with(".png") {
+        "image/png"
+    } else if path_lc.ends_with(".jpg") || path_lc.ends_with(".jpeg") {
+        "image/jpeg"
+    } else if path_lc.ends_with(".xpm") {
+        "image/x-xpixmap"
+    } else {
+        "image/png"
+    };
+    Ok(format!("data:{};base64,{}", mime, b64))
+}
+
 // ─── App entry point ─────────────────────────────────────────────────────────
 
 pub fn run() {
@@ -584,6 +671,7 @@ pub fn run() {
             get_tray_snapshot,
             get_installed_apps,
             uninstall_app,
+            get_app_icon_data_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");
