@@ -53,6 +53,7 @@ export interface TraySnapshot {
 }
 
 export interface AppInfo {
+  id: string;
   name: string;
   version: string;
   install_path: string;
