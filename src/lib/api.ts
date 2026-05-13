@@ -7,6 +7,8 @@ import type {
   TraySnapshot,
   AppInfo,
   AppSettings,
+  DiskEntry,
+  ScanProgress,
 } from "@/types";
 
 export const api = {
@@ -21,4 +23,6 @@ export const api = {
   getAppIconDataUrl: (path: string) => invoke<string>("get_app_icon_data_url", { path }),
   getSettings: () => invoke<AppSettings>("get_settings"),
   saveSettings: (settings: AppSettings) => invoke<void>("save_settings", { settings }),
+  scanDirectory: (path: string) => invoke<DiskEntry[]>("scan_directory", { path }),
+  deletePath: (path: string) => invoke<void>("delete_path", { path }),
 };
