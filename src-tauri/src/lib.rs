@@ -426,11 +426,22 @@ fn get_installed_apps() -> Vec<AppInfo> {
                             } else if line.starts_with("Icon=") {
                                 let icon_name = line.replace("Icon=", "").trim().to_string();
                                 app.icon_path = resolve_linux_icon(&icon_name);
+                            } else if line.starts_with("X-AppImage-Version=") {
+                                app.version = line.replace("X-AppImage-Version=", "").trim().to_string();
                             } else if line.starts_with("Version=") {
-                                app.version = line.replace("Version=", "").trim().to_string();
+                                let v = line.replace("Version=", "").trim().to_string();
+                                // Desktop spec versions are usually 1.0, 1.1, 1.4, 1.5. 
+                                // If it's something different, it's likely the app's own version.
+                                if v != "1.0" && v != "1.1" && v != "1.2" && v != "1.4" && v != "1.5" {
+                                    app.version = v;
+                                }
                             } else if line == "NoDisplay=true" {
                                 is_no_display = true;
                             }
+                        }
+                        
+                        if app.version.is_empty() {
+                            app.version = "1.0.0".to_string();
                         }
 
                         if !app.name.is_empty() && !is_no_display {
@@ -446,20 +457,61 @@ fn get_installed_apps() -> Vec<AppInfo> {
     {
         use std::fs;
         use std::path::Path;
+        use plist::Value;
 
-        let paths = vec!["/Applications", "/System/Applications"];
+        let home = std::env::var("HOME").unwrap_or_default();
+        let paths = vec![
+            "/Applications".to_string(),
+            "/System/Applications".to_string(),
+            format!("{}/Applications", home),
+        ];
+
         for p in paths {
-            if let Ok(entries) = fs::read_dir(p) {
+            let base_path = Path::new(&p);
+            if !base_path.exists() { continue; }
+
+            if let Ok(entries) = fs::read_dir(base_path) {
                 for entry in entries.filter_map(|e| e.ok()) {
                     let path = entry.path();
                     if path.extension().map(|s| s == "app").unwrap_or(false) {
-                        let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
-                        apps.push(AppInfo {
-                            id: name.clone(),
-                            name,
-                            install_path: path.to_string_lossy().to_string(),
-                            ..Default::default()
-                        });
+                        let info_plist = path.join("Contents/Info.plist");
+                        if info_plist.exists() {
+                            if let Ok(val) = Value::from_file(&info_plist) {
+                                if let Some(dict) = val.as_dictionary() {
+                                    let name = dict.get("CFBundleDisplayName")
+                                        .or_else(|| dict.get("CFBundleName"))
+                                        .and_then(|v| v.as_string())
+                                        .unwrap_or_else(|| entry.file_name().to_string_lossy().replace(".app", ""))
+                                        .to_string();
+
+                                    let version = dict.get("CFBundleShortVersionString")
+                                        .or_else(|| dict.get("CFBundleVersion"))
+                                        .and_then(|v| v.as_string())
+                                        .unwrap_or("1.0.0")
+                                        .to_string();
+
+                                    let mut icon_path = String::new();
+                                    if let Some(icon_file) = dict.get("CFBundleIconFile").and_then(|v| v.as_string()) {
+                                        let mut icon_name = icon_file.to_string();
+                                        if !icon_name.ends_with(".icns") {
+                                            icon_name.push_str(".icns");
+                                        }
+                                        let p = path.join("Contents/Resources").join(icon_name);
+                                        if p.exists() {
+                                            icon_path = p.to_string_lossy().to_string();
+                                        }
+                                    }
+
+                                    apps.push(AppInfo {
+                                        id: name.clone(),
+                                        name,
+                                        version,
+                                        install_path: path.to_string_lossy().to_string(),
+                                        icon_path,
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -468,8 +520,40 @@ fn get_installed_apps() -> Vec<AppInfo> {
 
     #[cfg(target_os = "windows")]
     {
-        // For Windows, we'd ideally use winreg. This is a placeholder for now
-        // to show "something up and working".
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        let roots = vec![
+            (RegKey::predef(HKEY_LOCAL_MACHINE), "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+            (RegKey::predef(HKEY_LOCAL_MACHINE), "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+            (RegKey::predef(HKEY_CURRENT_USER), "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        ];
+
+        for (root, path) in roots {
+            if let Ok(key_parent) = root.open_subkey(path) {
+                for name in key_parent.enum_keys().filter_map(|x| x.ok()) {
+                    if let Ok(sub_key) = key_parent.open_subkey(&name) {
+                        let display_name: String = sub_key.get_value("DisplayName").unwrap_or_default();
+                        if display_name.is_empty() { continue; }
+
+                        let version: String = sub_key.get_value("DisplayVersion").unwrap_or_else(|_| "1.0.0".to_string());
+                        let install_path: String = sub_key.get_value("InstallLocation").unwrap_or_default();
+                        let icon_raw: String = sub_key.get_value("DisplayIcon").unwrap_or_default();
+
+                        let icon_path = icon_raw.split(',').next().unwrap_or(&icon_raw)
+                            .trim_matches('"').to_string();
+
+                        apps.push(AppInfo {
+                            id: name,
+                            name: display_name,
+                            version,
+                            install_path,
+                            icon_path,
+                        });
+                    }
+                }
+            }
+        }
     }
 
     // Sort by name
@@ -567,6 +651,10 @@ fn get_app_icon_data_url(path: String) -> Result<String, String> {
         "image/jpeg"
     } else if path_lc.ends_with(".xpm") {
         "image/x-xpixmap"
+    } else if path_lc.ends_with(".ico") {
+        "image/x-icon"
+    } else if path_lc.ends_with(".icns") {
+        "image/x-icns"
     } else {
         "image/png"
     };
