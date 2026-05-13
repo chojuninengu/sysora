@@ -72,6 +72,15 @@ pub struct TraySnapshot {
     pub battery: BatteryInfo,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct AppInfo {
+    pub name: String,
+    pub version: String,
+    pub install_path: String,
+    pub size_bytes: u64,
+    pub icon_path: String,
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn fmt_bytes(bytes: u64) -> String {
@@ -303,6 +312,107 @@ fn get_tray_snapshot(state: State<SysState>) -> TraySnapshot {
     }
 }
 
+#[tauri::command]
+fn get_installed_apps() -> Vec<AppInfo> {
+    let mut apps = Vec::new();
+
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        use std::path::Path;
+        use walkdir::WalkDir;
+
+        let home_apps = format!("{}/.local/share/applications", std::env::var("HOME").unwrap_or_default());
+        let paths = vec![
+            "/usr/share/applications",
+            &home_apps,
+        ];
+
+        for p in paths {
+            if !Path::new(p).exists() {
+                continue;
+            }
+            for entry in WalkDir::new(p).max_depth(2).into_iter().filter_map(|e| e.ok()) {
+                if entry.path().extension().map(|s| s == "desktop").unwrap_or(false) {
+                    if let Ok(content) = fs::read_to_string(entry.path()) {
+                        let mut app = AppInfo {
+                            install_path: entry.path().to_string_lossy().to_string(),
+                            ..Default::default()
+                        };
+                        let mut in_desktop_entry = false;
+                        let mut is_no_display = false;
+
+                        for line in content.lines() {
+                            let line = line.trim();
+                            if line == "[Desktop Entry]" {
+                                in_desktop_entry = true;
+                                continue;
+                            }
+                            if line.starts_with('[') {
+                                in_desktop_entry = false;
+                                continue;
+                            }
+                            if !in_desktop_entry {
+                                continue;
+                            }
+
+                            if line.starts_with("Name=") {
+                                app.name = line.replace("Name=", "").trim().to_string();
+                            } else if line.starts_with("Icon=") {
+                                app.icon_path = line.replace("Icon=", "").trim().to_string();
+                            } else if line.starts_with("Version=") {
+                                app.version = line.replace("Version=", "").trim().to_string();
+                            } else if line == "NoDisplay=true" {
+                                is_no_display = true;
+                            }
+                        }
+
+                        if !app.name.is_empty() && !is_no_display {
+                            apps.push(app);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::fs;
+        use std::path::Path;
+
+        let paths = vec!["/Applications", "/System/Applications"];
+        for p in paths {
+            if let Ok(entries) = fs::read_dir(p) {
+                for entry in entries.filter_map(|e| e.ok()) {
+                    let path = entry.path();
+                    if path.extension().map(|s| s == "app").unwrap_or(false) {
+                        let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                        apps.push(AppInfo {
+                            name,
+                            install_path: path.to_string_lossy().to_string(),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // For Windows, we'd ideally use winreg. This is a placeholder for now
+        // to show "something up and working".
+    }
+
+    // Sort by name
+    apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    // Deduplicate by name and path
+    apps.dedup_by(|a, b| a.name == b.name && a.install_path == b.install_path);
+    
+    apps
+}
+
 // ─── Background refresh emitter ──────────────────────────────────────────────
 
 async fn start_refresh_loop(app: AppHandle) {
@@ -408,6 +518,7 @@ pub fn run() {
             get_disks,
             get_battery,
             get_tray_snapshot,
+            get_installed_apps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");
