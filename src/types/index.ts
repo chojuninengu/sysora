@@ -52,6 +52,14 @@ export interface TraySnapshot {
   battery: BatteryInfo;
 }
 
+export interface AppInfo {
+  name: string;
+  version: string;
+  install_path: string;
+  size_bytes: number;
+  icon_path: string;
+}
+
 export type TabId =
   | "memory"
   | "processes"
