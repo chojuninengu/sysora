@@ -81,6 +81,12 @@ export interface ScanProgress {
   current_path: string;
 }
 
+export interface HistoryPoint {
+  ts: number;
+  cpu: number;
+  ram_used: number;
+}
+
 export type TabId =
   | "memory"
   | "processes"

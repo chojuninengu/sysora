@@ -1,7 +1,7 @@
 use serde::Serialize;
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use sysinfo::{Disks, System, CpuExt, ProcessExt, SystemExt};
+use sysinfo::{Disks, System};
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -505,6 +505,12 @@ fn scan_directory(app: AppHandle, path: String) -> Vec<DiskEntry> {
     entries
 }
 
+/// Returns the rolling buffer of resource usage history.
+#[tauri::command]
+fn get_history(state: State<SysState>) -> Vec<SnapPoint> {
+    state.history.lock().unwrap().iter().cloned().collect()
+}
+
 /// Returns a lightweight snapshot for the tray popup.
 #[tauri::command]
 fn get_tray_snapshot(state: State<SysState>) -> TraySnapshot {
@@ -873,6 +879,23 @@ async fn start_refresh_loop(app: AppHandle) {
             0.0
         };
 
+        // Record history point
+        {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let mut hist = state.history.lock().unwrap();
+            hist.push_back(SnapPoint {
+                ts,
+                cpu: cpu_usage,
+                ram_used: used_mem,
+            });
+            if hist.len() > 60 {
+                hist.pop_front();
+            }
+        }
+
         if last_notification.elapsed() > StdDuration::from_secs(60) {
             let mut triggered = false;
             if cpu_usage > cpu_threshold {
@@ -950,6 +973,7 @@ pub fn run() {
             app.manage(SysState {
                 sys: Mutex::new(System::new_all()),
                 settings: Mutex::new(settings),
+                history: Mutex::new(VecDeque::with_capacity(60)),
             });
 
             // Force the window icon for Linux dock
@@ -1050,6 +1074,7 @@ pub fn run() {
             save_settings,
             scan_directory,
             delete_path,
+            get_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");

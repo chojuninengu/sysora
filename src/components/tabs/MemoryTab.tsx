@@ -6,6 +6,7 @@ import { Cpu, MemoryStick, HardDrive, Battery, Skull } from "lucide-react";
 import { api } from "@/lib/api";
 import { fmtBytes, barColor, healthColor, healthPctColor } from "@/lib/utils";
 import { StatCard } from "@/components/layout/StatCard";
+import { HistoryChart } from "@/components/charts/HistoryChart";
 import { useAppStore } from "@/store/app";
 
 function ProcessRow({
@@ -163,6 +164,8 @@ export function MemoryTab() {
           }}
         />
       </div>
+
+      <HistoryChart />
 
       {/* Process table */}
       <div className="card overflow-hidden">

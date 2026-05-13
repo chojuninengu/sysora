@@ -9,6 +9,7 @@ import type {
   AppSettings,
   DiskEntry,
   ScanProgress,
+  HistoryPoint,
 } from "@/types";
 
 export const api = {
@@ -25,4 +26,5 @@ export const api = {
   saveSettings: (settings: AppSettings) => invoke<void>("save_settings", { settings }),
   scanDirectory: (path: string) => invoke<DiskEntry[]>("scan_directory", { path }),
   deletePath: (path: string) => invoke<void>("delete_path", { path }),
+  getHistory: () => invoke<HistoryPoint[]>("get_history"),
 };
