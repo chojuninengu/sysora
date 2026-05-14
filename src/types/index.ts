@@ -21,6 +21,7 @@ export interface SystemSnapshot {
   kernel_version: string;
   hostname: string;
   uptime_secs: number;
+  cpu_temp: number;
 }
 
 export interface DiskInfo {
@@ -68,6 +69,8 @@ export interface AppSettings {
   ram_alert_threshold: number;
   cpu_alert_threshold: number;
   start_minimized: boolean;
+  temp_threshold: number;
+  temp_unit: "c" | "f";
 }
 
 export interface DiskEntry {
@@ -98,6 +101,13 @@ export interface NetworkHistoryPoint {
 export interface ScanProgress {
   scanned: number;
   current_path: string;
+}
+
+export interface TempReading {
+  label: string;
+  current_celsius: number;
+  max_celsius: number;
+  critical_celsius: number | null;
 }
 
 export interface HistoryPoint {

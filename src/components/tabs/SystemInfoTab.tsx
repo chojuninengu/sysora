@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Monitor, Cpu, MemoryStick, BatteryWarning, Clock, FileText, Download, Loader2 } from "lucide-react";
+import { Monitor, Cpu, MemoryStick, BatteryWarning, Clock, FileText, Download, Loader2, Thermometer } from "lucide-react";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtUptime, healthColor, healthLabel } from "@/lib/utils";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -29,7 +29,15 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
 export function SystemInfoTab() {
   const { data: sys } = useQuery({ queryKey: ["sysInfo"],  queryFn: api.getSystemInfo });
   const { data: bat } = useQuery({ queryKey: ["battery"],  queryFn: api.getBattery });
+  const { data: temps } = useQuery({ queryKey: ["temps"], queryFn: api.getTemperatures });
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
+  
   const [exporting, setExporting] = useState(false);
+
+  const fmtTemp = (c: number) => {
+    if (settings?.temp_unit === "f") return `${((c * 9/5) + 32).toFixed(0)}°F`;
+    return `${c.toFixed(0)}°C`;
+  };
 
   const handleExport = async () => {
     try {
@@ -78,7 +86,7 @@ export function SystemInfoTab() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4 pb-8">
         {/* OS */}
         <Section icon={<Monitor size={15} />} title="Operating System">
           <InfoRow label="OS"       value={`${sys?.os_name ?? "—"} ${sys?.os_version ?? ""}`} />
@@ -91,6 +99,16 @@ export function SystemInfoTab() {
         <Section icon={<Cpu size={15} />} title="Processor">
           <InfoRow label="Model"  value={sys?.cpu_brand ?? "—"} />
           <InfoRow label="Cores"  value={sys ? `${sys.cpu_count} logical cores` : "—"} />
+          <div className="flex items-center justify-between py-2.5 border-b border-white/5 last:border-0">
+            <span className="text-xs text-white/40">Temperature</span>
+            <span className={`text-xs font-mono font-bold ${
+              (sys?.cpu_temp ?? 0) > 80 ? "text-red-400" :
+              (sys?.cpu_temp ?? 0) > 60 ? "text-amber-400" :
+              "text-emerald-400"
+            }`}>
+              {sys ? fmtTemp(sys.cpu_temp) : "—"}
+            </span>
+          </div>
           <InfoRow label="Usage"  value={sys ? `${sys.cpu_usage.toFixed(1)}%` : "—"} />
         </Section>
 
@@ -138,6 +156,33 @@ export function SystemInfoTab() {
             </>
           )}
         </Section>
+
+        {/* Temperatures */}
+        <div className="col-span-2">
+          <Section icon={<Thermometer size={15} />} title="Detailed Hardware Sensors">
+            {temps && temps.length > 0 ? (
+              <div className="grid grid-cols-2 gap-x-8 gap-y-0.5">
+                {temps.map((t) => (
+                  <div key={t.label} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
+                    <span className="text-[11px] text-white/40 truncate max-w-[150px]">{t.label}</span>
+                    <div className="flex items-center gap-3">
+                       <span className={`text-xs font-mono font-bold ${
+                         t.current_celsius > 80 ? "text-red-400" :
+                         t.current_celsius > 60 ? "text-amber-400" :
+                         "text-emerald-400"
+                       }`}>
+                         {fmtTemp(t.current_celsius)}
+                       </span>
+                       <span className="text-[9px] text-white/20 uppercase font-mono">Max {fmtTemp(t.max_celsius)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-white/30 py-2">No hardware sensor data available for this platform.</p>
+            )}
+          </Section>
+        </div>
 
         {/* Quick specs summary card — great for sharing machine specs */}
         <div className="col-span-2 card p-5">

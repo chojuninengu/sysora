@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   ram_alert_threshold: 85,
   cpu_alert_threshold: 80,
   start_minimized: false,
+  temp_threshold: 85,
+  temp_unit: "c",
 };
 
 export function SettingsTab() {
@@ -165,6 +167,23 @@ export function SettingsTab() {
               className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-brand-400"
             />
           </div>
+
+          <div className="space-y-4">
+            <div className="flex justify-between items-center">
+              <label className="text-sm text-white/90 font-semibold">Temperature Alert</label>
+              <span className="text-xs font-mono font-bold text-red-400 bg-red-400/10 px-2 py-0.5 rounded border border-red-400/20">
+                {settings.temp_threshold}°C
+              </span>
+            </div>
+            <input
+              type="range"
+              min="40"
+              max="100"
+              value={settings.temp_threshold}
+              onChange={(e) => handleSave({ ...settings, temp_threshold: parseInt(e.target.value) })}
+              className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-red-400"
+            />
+          </div>
         </div>
       </section>
 
@@ -172,10 +191,30 @@ export function SettingsTab() {
       <section className="space-y-4">
         <div className="flex items-center gap-2 text-white/50 px-1">
           <Rocket size={14} className="text-emerald-400" />
-          <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">Application Behavior</h3>
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">App Preferences</h3>
         </div>
 
         <div className="bg-white/[0.03] rounded-2xl border border-white/10 overflow-hidden divide-y divide-white/5">
+          <div className="p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all group">
+            <div>
+              <h4 className="text-sm font-semibold text-white group-hover:text-brand-400 transition-colors">Temperature Unit</h4>
+              <p className="text-[10px] text-white/40 font-medium">Toggle between Celsius and Fahrenheit</p>
+            </div>
+            <div className="flex bg-white/10 p-1 rounded-lg border border-white/5">
+              <button
+                onClick={() => handleSave({ ...settings, temp_unit: "c" })}
+                className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${settings.temp_unit === "c" ? "bg-brand-600 text-white shadow-lg" : "text-white/40 hover:text-white"}`}
+              >
+                Celsius (°C)
+              </button>
+              <button
+                onClick={() => handleSave({ ...settings, temp_unit: "f" })}
+                className={`px-3 py-1.5 text-[10px] font-bold rounded-md transition-all ${settings.temp_unit === "f" ? "bg-brand-600 text-white shadow-lg" : "text-white/40 hover:text-white"}`}
+              >
+                Fahrenheit (°F)
+              </button>
+            </div>
+          </div>
           <Toggle
             label="Launch at Login"
             description="Automatically start Sysora when you log in"

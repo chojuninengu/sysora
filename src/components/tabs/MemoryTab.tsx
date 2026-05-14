@@ -94,6 +94,16 @@ export function MemoryTab() {
     queryFn: api.getBattery,
   });
 
+  const { data: settings } = useQuery({
+    queryKey: ["settings"],
+    queryFn: api.getSettings,
+  });
+
+  const fmtTemp = (c: number) => {
+    if (settings?.temp_unit === "f") return `${((c * 9/5) + 32).toFixed(0)}°F`;
+    return `${c.toFixed(0)}°C`;
+  };
+
   // Refresh when backend emits process-update
   useEffect(() => {
     const unlisten = listen("process-update", () => {
@@ -148,6 +158,15 @@ export function MemoryTab() {
           sub={`${sysInfo?.cpu_count ?? 0} cores · ${sysInfo?.cpu_brand ?? "—"}`}
           pct={cpuPct}
           icon={<Cpu size={14} />}
+          badge={sysInfo && sysInfo.cpu_temp > 0 && (
+            <div className={`px-1.5 py-0.5 rounded-md text-[9px] font-bold border transition-colors ${
+              sysInfo.cpu_temp > 80 ? "bg-red-500/10 text-red-400 border-red-500/20" :
+              sysInfo.cpu_temp > 60 ? "bg-amber-500/10 text-amber-400 border-amber-500/20" :
+              "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+            }`}>
+              {fmtTemp(sysInfo.cpu_temp)}
+            </div>
+          )}
         />
         <StatCard
           label="Disk"

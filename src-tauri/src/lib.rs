@@ -17,6 +17,8 @@ pub struct AppSettings {
     pub ram_alert_threshold: f32,
     pub cpu_alert_threshold: f32,
     pub start_minimized: bool,
+    pub temp_threshold: f32,
+    pub temp_unit: String,
 }
 
 impl Default for AppSettings {
@@ -27,6 +29,8 @@ impl Default for AppSettings {
             ram_alert_threshold: 85.0,
             cpu_alert_threshold: 80.0,
             start_minimized: false,
+            temp_threshold: 85.0,
+            temp_unit: "c".to_string(),
         }
     }
 }
@@ -46,6 +50,7 @@ pub struct SysState {
     pub is_scanning: Mutex<bool>,
     pub networks: Mutex<sysinfo::Networks>,
     pub net_history: Mutex<VecDeque<NetworkHistory>>,
+    pub components: Mutex<sysinfo::Components>,
 }
 
 // ─── Data types (serialized to JSON for the frontend) ───────────────────────
@@ -75,6 +80,7 @@ pub struct SystemSnapshot {
     pub kernel_version: String,
     pub hostname: String,
     pub uptime_secs: u64,
+    pub cpu_temp: f32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -146,6 +152,14 @@ pub struct DiskEntry {
     pub name: String,
     pub size_bytes: u64,
     pub is_dir: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TempReading {
+    pub label: String,
+    pub current_celsius: f32,
+    pub max_celsius: f32,
+    pub critical_celsius: Option<f32>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -482,6 +496,14 @@ fn get_system_info(state: State<SysState>) -> SystemSnapshot {
         kernel_version: System::kernel_version().unwrap_or_default(),
         hostname: System::host_name().unwrap_or_default(),
         uptime_secs: System::uptime(),
+        cpu_temp: {
+            let mut components = state.components.lock().unwrap();
+            components.refresh(true);
+            components.iter()
+                .filter(|c| c.label().to_lowercase().contains("cpu") || c.label().to_lowercase().contains("package"))
+                .filter_map(|c| c.temperature())
+                .fold(0.0, f32::max)
+        }
     }
 }
 
@@ -524,6 +546,22 @@ fn get_network_stats(state: State<SysState>) -> Vec<NetworkInterface> {
             total_tx: data.total_transmitted(),
             mac_address: data.mac_address().to_string(),
             ip_address: data.ip_networks().iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", "),
+        }
+    }).collect()
+}
+
+/// Returns all detected temperature sensors.
+#[tauri::command]
+fn get_temperatures(state: State<SysState>) -> Vec<TempReading> {
+    let mut components = state.components.lock().unwrap();
+    components.refresh(true);
+    
+    components.iter().map(|c| {
+        TempReading {
+            label: c.label().to_string(),
+            current_celsius: c.temperature().unwrap_or(0.0),
+            max_celsius: c.max().unwrap_or(0.0),
+            critical_celsius: c.critical(),
         }
     }).collect()
 }
@@ -1238,13 +1276,14 @@ async fn start_refresh_loop(app: AppHandle) {
     let mut last_notification = Instant::now() - StdDuration::from_secs(60);
 
     loop {
-        let (interval, ram_threshold, cpu_threshold) = {
+        let (interval, ram_threshold, cpu_threshold, temp_threshold) = {
             let state = app.state::<SysState>();
             let settings = state.settings.lock().unwrap();
             (
                 settings.refresh_interval_secs,
                 settings.ram_alert_threshold,
                 settings.cpu_alert_threshold,
+                settings.temp_threshold,
             )
         };
 
@@ -1280,6 +1319,20 @@ async fn start_refresh_loop(app: AppHandle) {
             for (_, data) in networks.iter() {
                 total_rx += data.received();
                 total_tx += data.transmitted();
+            }
+        }
+
+        // Check Temperatures
+        let mut max_temp: f32 = 0.0;
+        {
+            let mut components = state.components.lock().unwrap();
+            components.refresh(true);
+            for c in components.iter() {
+                if let Some(t) = c.temperature() {
+                    if t > max_temp {
+                        max_temp = t;
+                    }
+                }
             }
         }
 
@@ -1328,6 +1381,13 @@ async fn start_refresh_loop(app: AppHandle) {
                     .builder()
                     .title("High RAM Usage Alert")
                     .body(format!("RAM usage is at {:.1}%", ram_usage))
+                    .show();
+                triggered = true;
+            } else if max_temp > temp_threshold {
+                let _ = app.notification()
+                    .builder()
+                    .title("High Temperature Alert")
+                    .body(format!("Hardware sensor reached {:.1}°C", max_temp))
                     .show();
                 triggered = true;
             }
@@ -1398,6 +1458,7 @@ pub fn run() {
                 is_scanning: Mutex::new(false),
                 networks: Mutex::new(sysinfo::Networks::new_with_refreshed_list()),
                 net_history: Mutex::new(VecDeque::with_capacity(60)),
+                components: Mutex::new(sysinfo::Components::new_with_refreshed_list()),
             });
 
             // Force the window icon for Linux dock
@@ -1492,6 +1553,7 @@ pub fn run() {
             get_battery,
             get_network_stats,
             get_network_history,
+            get_temperatures,
             export_report,
             get_tray_snapshot,
             get_installed_apps,
