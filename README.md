@@ -154,11 +154,6 @@ npm run tauri dev
 
 ---
 
-## Contributing
-
-We love contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
-
----
 
 
 ## Contributing
