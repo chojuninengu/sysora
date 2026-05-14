@@ -44,6 +44,8 @@ pub struct SysState {
     pub history: Mutex<VecDeque<SnapPoint>>,
     pub scan_results: Mutex<Vec<DiskEntry>>,
     pub is_scanning: Mutex<bool>,
+    pub networks: Mutex<sysinfo::Networks>,
+    pub net_history: Mutex<VecDeque<NetworkHistory>>,
 }
 
 // ─── Data types (serialized to JSON for the frontend) ───────────────────────
@@ -98,6 +100,26 @@ pub struct BatteryInfo {
     pub time_to_empty_mins: Option<u64>,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct NetworkInterface {
+    pub name: String,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub rx_speed: u64,
+    pub tx_speed: u64,
+    pub total_rx: u64,
+    pub total_tx: u64,
+    pub mac_address: String,
+    pub ip_address: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct NetworkHistory {
+    pub ts: u64,
+    pub rx_speed: u64,
+    pub tx_speed: u64,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct TraySnapshot {
     pub cpu_usage: f32,
@@ -105,6 +127,7 @@ pub struct TraySnapshot {
     pub total_memory: u64,
     pub disk_used_pct: f32,
     pub battery: BatteryInfo,
+    pub network: (u64, u64), // (total_rx_speed, total_tx_speed)
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -469,6 +492,33 @@ fn get_disks() -> Vec<DiskInfo> {
         .collect()
 }
 
+/// Returns all network interfaces and their current stats.
+#[tauri::command]
+fn get_network_stats(state: State<SysState>) -> Vec<NetworkInterface> {
+    let mut networks = state.networks.lock().unwrap();
+    networks.refresh(true);
+    
+    networks.iter().map(|(name, data)| {
+        NetworkInterface {
+            name: name.clone(),
+            rx_bytes: data.received(),
+            tx_bytes: data.transmitted(),
+            rx_speed: data.received(), // Since we refresh every X seconds, this is raw for now
+            tx_speed: data.transmitted(),
+            total_rx: data.total_received(),
+            total_tx: data.total_transmitted(),
+            mac_address: data.mac_address().to_string(),
+            ip_address: data.ip_networks().iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", "),
+        }
+    }).collect()
+}
+
+/// Returns the network history for sparklines.
+#[tauri::command]
+fn get_network_history(state: State<SysState>) -> Vec<NetworkHistory> {
+    state.net_history.lock().unwrap().iter().cloned().collect()
+}
+
 /// Returns battery info (health, charge, cycles).
 #[tauri::command]
 fn get_battery() -> BatteryInfo {
@@ -649,6 +699,17 @@ fn get_tray_snapshot(state: State<SysState>) -> TraySnapshot {
         total_memory: sys.total_memory(),
         battery: read_battery(),
         disk_used_pct,
+        network: {
+            let mut networks = state.networks.lock().unwrap();
+            networks.refresh(true);
+            let mut rx = 0;
+            let mut tx = 0;
+            for (_, data) in networks.iter() {
+                rx += data.received();
+                tx += data.transmitted();
+            }
+            (rx, tx)
+        }
     }
 }
 
@@ -1023,12 +1084,25 @@ async fn start_refresh_loop(app: AppHandle) {
             0.0
         };
 
-        // Record history point
+        // Check Network usage
+        let mut total_rx = 0;
+        let mut total_tx = 0;
         {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
+            let mut networks = state.networks.lock().unwrap();
+            networks.refresh(true);
+            for (_, data) in networks.iter() {
+                total_rx += data.received();
+                total_tx += data.transmitted();
+            }
+        }
+
+        // Record history point
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        {
             let mut hist = state.history.lock().unwrap();
             hist.push_back(SnapPoint {
                 ts,
@@ -1037,6 +1111,19 @@ async fn start_refresh_loop(app: AppHandle) {
             });
             if hist.len() > 60 {
                 hist.pop_front();
+            }
+        }
+
+        // Record network history
+        {
+            let mut net_hist = state.net_history.lock().unwrap();
+            net_hist.push_back(NetworkHistory {
+                ts,
+                rx_speed: total_rx,
+                tx_speed: total_tx,
+            });
+            if net_hist.len() > 60 {
+                net_hist.pop_front();
             }
         }
 
@@ -1064,6 +1151,7 @@ async fn start_refresh_loop(app: AppHandle) {
         }
 
         let _ = app.emit("process-update", ());
+        let _ = app.emit("network-update", ());
     }
 }
 
@@ -1120,6 +1208,8 @@ pub fn run() {
                 history: Mutex::new(VecDeque::with_capacity(60)),
                 scan_results: Mutex::new(Vec::new()),
                 is_scanning: Mutex::new(false),
+                networks: Mutex::new(sysinfo::Networks::new_with_refreshed_list()),
+                net_history: Mutex::new(VecDeque::with_capacity(60)),
             });
 
             // Force the window icon for Linux dock
@@ -1212,6 +1302,8 @@ pub fn run() {
             get_system_info,
             get_disks,
             get_battery,
+            get_network_stats,
+            get_network_history,
             get_tray_snapshot,
             get_installed_apps,
             uninstall_app,
