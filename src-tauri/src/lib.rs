@@ -19,6 +19,7 @@ pub struct AppSettings {
     pub start_minimized: bool,
     pub temp_threshold: f32,
     pub temp_unit: String,
+    pub theme: String,
 }
 
 impl Default for AppSettings {
@@ -31,6 +32,7 @@ impl Default for AppSettings {
             start_minimized: false,
             temp_threshold: 85.0,
             temp_unit: "c".to_string(),
+            theme: "system".to_string(),
         }
     }
 }

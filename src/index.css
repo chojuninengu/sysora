@@ -18,12 +18,14 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
+    @apply bg-surface-50 text-surface-800 dark:bg-surface-900 dark:text-white/90;
   }
 
   /* Custom scrollbar */
   ::-webkit-scrollbar        { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track  { background: transparent; }
-  ::-webkit-scrollbar-thumb  { background: #3C3489; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb  { background: #D3D1C7; border-radius: 99px; }
+  .dark ::-webkit-scrollbar-thumb { background: #3C3489; }
   ::-webkit-scrollbar-thumb:hover { background: #534AB7; }
 }
 
@@ -40,10 +42,10 @@
   }
 
   .card {
-    @apply bg-surface-800 border border-white/5 rounded-xl;
+    @apply bg-white border border-surface-200 rounded-xl dark:bg-surface-800 dark:border-white/5;
   }
 
   .card-hover {
-    @apply card transition-colors hover:border-brand-600/40 hover:bg-[#222030];
+    @apply card transition-colors hover:border-brand-600/40 hover:bg-surface-100 dark:hover:bg-[#222030];
   }
 }

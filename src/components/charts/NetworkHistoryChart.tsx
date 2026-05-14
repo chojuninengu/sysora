@@ -28,20 +28,20 @@ export function NetworkHistoryChart() {
   }));
 
   return (
-    <div className="bg-white/[0.03] rounded-3xl border border-white/10 p-6 space-y-4 backdrop-blur-sm shadow-xl">
+    <div className="bg-white dark:bg-white/[0.03] rounded-3xl border border-surface-200 dark:border-white/10 p-6 space-y-4 shadow-xl transition-colors duration-300">
       <div className="flex items-center justify-between px-1">
-        <div className="flex items-center gap-2 text-white/50">
-          <Globe size={14} className="text-sky-400" />
+        <div className="flex items-center gap-2 text-surface-400 dark:text-white/50">
+          <Globe size={14} className="text-sky-600 dark:text-sky-400" />
           <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">60s Network Activity</h3>
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-sky-400" />
-            <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider">Download</span>
+            <div className="w-2 h-2 rounded-full bg-sky-500" />
+            <span className="text-[9px] font-bold text-surface-400 dark:text-white/40 uppercase tracking-wider">Download</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="w-2 h-2 rounded-full bg-amber-400" />
-            <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider">Upload</span>
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            <span className="text-[9px] font-bold text-surface-400 dark:text-white/40 uppercase tracking-wider">Upload</span>
           </div>
         </div>
       </div>
@@ -59,19 +59,34 @@ export function NetworkHistoryChart() {
                 <stop offset="95%" stopColor="#fbbf24" stopOpacity={0}/>
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-surface-200 dark:text-white/5" vertical={false} />
             <XAxis dataKey="time" hide />
             <YAxis 
-                tick={{fontSize: 9, fill: '#ffffff20', fontWeight: 'bold'}} 
+                tick={{fontSize: 9, fill: 'currentColor', fontWeight: 'bold'}} 
+                className="text-surface-300 dark:text-white/20"
                 axisLine={false} 
                 tickLine={false}
                 tickFormatter={(val) => `${(val/1024).toFixed(1)}M`}
             />
             <Tooltip 
-              contentStyle={{ backgroundColor: '#0f0f0f', border: '1px solid #ffffff10', borderRadius: '12px', fontSize: '10px' }}
-              itemStyle={{ fontWeight: 'bold', fontSize: '10px' }}
-              labelStyle={{ color: '#666', marginBottom: '4px' }}
-              formatter={(val: number) => [fmtBytes(val * 1024) + "/s"]}
+              content={({ active, payload, label }) => {
+                if (active && payload && payload.length) {
+                  return (
+                    <div className="bg-white dark:bg-surface-800 border border-surface-200 dark:border-white/10 rounded-xl p-3 shadow-xl">
+                      <p className="text-[10px] text-surface-400 dark:text-white/30 mb-1">{label}</p>
+                      {payload.map((entry: any, index: number) => (
+                        <div key={index} className="flex items-center gap-2">
+                           <div className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                           <span className="text-[10px] font-bold text-surface-900 dark:text-white/90">
+                             {entry.name}: {fmtBytes(entry.value * 1024)}/s
+                           </span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+                return null;
+              }}
             />
             <Area 
                 type="monotone" 

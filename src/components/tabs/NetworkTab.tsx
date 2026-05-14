@@ -63,7 +63,7 @@ export function NetworkTab() {
           sub="Since last boot"
           pct={100}
           icon={<ArrowDownCircle size={14} />}
-          colorFuncs={{ bar: () => "bg-white/10", text: () => "text-white/40" }}
+          colorFuncs={{ bar: () => "bg-surface-200 dark:bg-white/10", text: () => "text-surface-400 dark:text-white/40" }}
         />
         <StatCard
           label="Total Uploaded"
@@ -71,7 +71,7 @@ export function NetworkTab() {
           sub="Since last boot"
           pct={100}
           icon={<ArrowUpCircle size={14} />}
-          colorFuncs={{ bar: () => "bg-white/10", text: () => "text-white/40" }}
+          colorFuncs={{ bar: () => "bg-surface-200 dark:bg-white/10", text: () => "text-surface-400 dark:text-white/40" }}
         />
       </div>
 
@@ -80,53 +80,53 @@ export function NetworkTab() {
 
       {/* Interfaces Table */}
       <section className="space-y-4">
-        <div className="flex items-center gap-2 text-white/50 px-1">
-          <Server size={14} className="text-brand-400" />
+        <div className="flex items-center gap-2 text-surface-400 dark:text-white/50 px-1">
+          <Server size={14} className="text-brand-600 dark:text-brand-400" />
           <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">Network Interfaces</h3>
         </div>
 
         <div className="card overflow-hidden shadow-xl">
-          <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-white/5 bg-white/[0.02]">
-            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Interface</span>
-            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">IP Address</span>
-            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Download</span>
-            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest">Upload</span>
-            <span className="text-[10px] font-bold text-white/20 uppercase tracking-widest text-right">Total Data</span>
+          <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-4 border-b border-surface-200 dark:border-white/5 bg-surface-50 dark:bg-white/[0.02]">
+            <span className="text-[10px] font-bold text-surface-400 dark:text-white/20 uppercase tracking-widest">Interface</span>
+            <span className="text-[10px] font-bold text-surface-400 dark:text-white/20 uppercase tracking-widest">IP Address</span>
+            <span className="text-[10px] font-bold text-surface-400 dark:text-white/20 uppercase tracking-widest">Download</span>
+            <span className="text-[10px] font-bold text-surface-400 dark:text-white/20 uppercase tracking-widest">Upload</span>
+            <span className="text-[10px] font-bold text-surface-400 dark:text-white/20 uppercase tracking-widest text-right">Total Data</span>
           </div>
 
-          <div className="divide-y divide-white/5">
+          <div className="divide-y border-surface-200 dark:border-white/5">
             {isLoading ? (
-               <div className="p-12 text-center text-white/10 flex flex-col items-center gap-2">
+               <div className="p-12 text-center text-surface-300 dark:text-white/10 flex flex-col items-center gap-2">
                  <Activity size={24} className="animate-pulse" />
                  <p className="text-xs">Analyzing network hardware...</p>
                </div>
             ) : interfaces.map((iface, i) => (
-              <div key={i} className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-4 items-center hover:bg-white/[0.02] transition-colors group">
+              <div key={i} className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] gap-4 px-6 py-4 items-center border-b border-surface-200 dark:border-none hover:bg-surface-50 dark:hover:bg-white/[0.02] transition-colors group">
                 <div className="flex items-center gap-3 overflow-hidden">
-                  <div className="w-8 h-8 rounded-xl bg-white/5 flex items-center justify-center text-white/40 group-hover:bg-brand-500/10 group-hover:text-brand-400 transition-all shrink-0">
+                  <div className="w-8 h-8 rounded-xl bg-surface-100 dark:bg-white/5 flex items-center justify-center text-surface-400 dark:text-white/40 group-hover:bg-brand-500/10 group-hover:text-brand-600 dark:group-hover:text-brand-400 transition-all shrink-0">
                     <Globe size={16} />
                   </div>
                   <div className="overflow-hidden">
-                    <p className="text-sm font-semibold text-white/90 truncate">{iface.name}</p>
-                    <p className="text-[10px] text-white/20 font-mono truncate">{iface.mac_address || "No MAC"}</p>
+                    <p className="text-sm font-semibold text-surface-900 dark:text-white/90 truncate">{iface.name}</p>
+                    <p className="text-[10px] text-surface-400 dark:text-white/20 font-mono truncate">{iface.mac_address || "No MAC"}</p>
                   </div>
                 </div>
 
                 <div className="overflow-hidden">
-                   <p className="text-[11px] font-mono text-white/60 truncate">{iface.ip_address || "Disconnected"}</p>
+                   <p className="text-[11px] font-mono text-surface-600 dark:text-white/60 truncate">{iface.ip_address || "Disconnected"}</p>
                 </div>
 
                 <div>
-                   <p className="text-[11px] font-mono font-bold text-sky-400/80">{fmtBytes(iface.rx_speed)}/s</p>
+                   <p className="text-[11px] font-mono font-bold text-sky-600 dark:text-sky-400/80">{fmtBytes(iface.rx_speed)}/s</p>
                 </div>
 
                 <div>
-                   <p className="text-[11px] font-mono font-bold text-amber-400/80">{fmtBytes(iface.tx_speed)}/s</p>
+                   <p className="text-[11px] font-mono font-bold text-amber-600 dark:text-amber-400/80">{fmtBytes(iface.tx_speed)}/s</p>
                 </div>
 
                 <div className="text-right">
-                   <p className="text-[11px] font-mono text-white/40">RX: {fmtBytes(iface.total_rx)}</p>
-                   <p className="text-[11px] font-mono text-white/40">TX: {fmtBytes(iface.total_tx)}</p>
+                   <p className="text-[11px] font-mono text-surface-400 dark:text-white/40">RX: {fmtBytes(iface.total_rx)}</p>
+                   <p className="text-[11px] font-mono text-surface-400 dark:text-white/40">TX: {fmtBytes(iface.total_tx)}</p>
                 </div>
               </div>
             ))}

@@ -13,7 +13,7 @@ pub struct Cli {
     pub command: Option<Commands>,
 
     /// Output in JSON format
-    #[arg(short, long)]
+    #[arg(short, long, global = true)]
     pub json: bool,
 
     /// Hidden arg for compatibility with GUI autostart

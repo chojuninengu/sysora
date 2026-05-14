@@ -19,7 +19,7 @@ function AppIcon({ icon_path, className = "w-6 h-6 object-contain" }: { icon_pat
     }
   }, [icon_path]);
 
-  if (!src) return <AppWindow size={20} className="text-brand-400" />;
+  if (!src) return <AppWindow size={20} className="text-brand-600 dark:text-brand-400" />;
 
   return <img src={src} alt="" className={className} />;
 }
@@ -73,10 +73,10 @@ export function AppsTab() {
 
       <div className="flex items-center justify-between px-1">
         <div>
-          <h2 className="text-lg font-semibold text-white/90">Installed Applications</h2>
-          <p className="text-xs text-white/30">View and manage apps installed on your system</p>
+          <h2 className="text-lg font-semibold text-surface-900 dark:text-white/90">Installed Applications</h2>
+          <p className="text-xs text-surface-400 dark:text-white/30">View and manage apps installed on your system</p>
         </div>
-        <div className="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-white/40 font-mono">
+        <div className="px-3 py-1.5 rounded-lg bg-surface-50 dark:bg-white/5 border border-surface-200 dark:border-white/10 text-[11px] text-surface-400 dark:text-white/40 font-mono">
           {filtered.length} {filtered.length === 1 ? 'App' : 'Apps'} found
         </div>
       </div>
@@ -89,13 +89,13 @@ export function AppsTab() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-center">
-             <div className="w-12 h-12 rounded-xl bg-white/5 flex items-center justify-center">
-                <AppWindow size={20} className="text-white/20" />
-             </div>
-             <div className="space-y-1">
-                <p className="text-sm text-white/40 font-medium">No applications found</p>
-                <p className="text-[11px] text-white/20 max-w-[200px]">Try adjusting your search query to find what you're looking for.</p>
-             </div>
+            <div className="w-12 h-12 rounded-xl bg-surface-50 dark:bg-white/5 flex items-center justify-center">
+              <AppWindow size={20} className="text-surface-300 dark:text-white/20" />
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm text-surface-500 dark:text-white/40 font-medium">No applications found</p>
+              <p className="text-[11px] text-surface-300 dark:text-white/20 max-w-[200px]">Try adjusting your search query to find what you're looking for.</p>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pb-4">
@@ -107,25 +107,25 @@ export function AppsTab() {
                   key={`${app.name}-${app.install_path}`} 
                   className={`card-hover group p-3 flex items-center gap-3 relative ${isWorking ? "opacity-60 pointer-events-none" : ""}`}
                 >
-                  <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center group-hover:bg-brand-500/10 transition-colors flex-shrink-0 overflow-hidden">
+                  <div className="w-10 h-10 rounded-lg bg-surface-50 dark:bg-white/5 flex items-center justify-center group-hover:bg-brand-500/10 transition-colors flex-shrink-0 overflow-hidden">
                     {isWorking ? (
-                      <Loader2 size={20} className="animate-spin text-brand-400" />
+                      <Loader2 size={20} className="animate-spin text-brand-600 dark:text-brand-400" />
                     ) : (
                       <AppIcon icon_path={app.icon_path} />
                     )}
                   </div>
                   <div className="flex-1 min-w-0 pr-12">
-                    <h3 className="text-sm font-medium text-white/80 truncate group-hover:text-white transition-colors">
+                    <h3 className="text-sm font-medium text-surface-900 dark:text-white/80 truncate group-hover:text-brand-600 dark:group-hover:text-white transition-colors">
                       {app.name}
                     </h3>
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-[10px] text-white/25 truncate">
+                      <span className="text-[10px] text-surface-400 dark:text-white/25 truncate">
                         {app.version || "0.1.0"}
                       </span>
                       {app.version && (
-                        <span className="w-1 h-1 rounded-full bg-white/10" />
+                        <span className="w-1 h-1 rounded-full bg-surface-200 dark:bg-white/10" />
                       )}
-                      <span className="text-[10px] text-white/25 truncate max-w-[120px]">
+                      <span className="text-[10px] text-surface-400 dark:text-white/25 truncate max-w-[120px]">
                         {app.install_path.split('/').pop()}
                       </span>
                     </div>
@@ -135,14 +135,14 @@ export function AppsTab() {
                     <button 
                       onClick={() => setSelectedApp(app)}
                       title="View Details"
-                      className="p-1.5 rounded-md hover:bg-white/5 text-white/30 hover:text-brand-400 transition-all"
+                      className="p-1.5 rounded-md hover:bg-surface-100 dark:hover:bg-white/5 text-surface-300 dark:text-white/30 hover:text-brand-600 dark:hover:text-brand-400 transition-all"
                     >
                       <Info size={14} />
                     </button>
                     <button 
                       onClick={() => handleUninstall(app)}
                       title="Uninstall Application"
-                      className="p-1.5 rounded-md hover:bg-red-500/10 text-white/30 hover:text-red-400 transition-all"
+                      className="p-1.5 rounded-md hover:bg-red-500/10 text-surface-300 dark:text-white/30 hover:text-red-500 dark:hover:text-red-400 transition-all"
                     >
                       <Trash2 size={14} />
                     </button>

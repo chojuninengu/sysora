@@ -71,6 +71,7 @@ export interface AppSettings {
   start_minimized: boolean;
   temp_threshold: number;
   temp_unit: "c" | "f";
+  theme: "dark" | "light" | "system";
 }
 
 export interface DiskEntry {
