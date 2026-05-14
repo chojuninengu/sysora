@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { 
   HardDrive, 
@@ -11,80 +11,111 @@ import {
   Loader2, 
   ArrowLeft,
   Trash2,
-  AlertTriangle
+  AlertCircle
 } from "lucide-react";
 import { api } from "@/lib/api";
 import { fmtBytes, barColor } from "@/lib/utils";
 import { listen } from "@tauri-apps/api/event";
 import { homeDir } from "@tauri-apps/api/path";
 import { DiskEntry, ScanProgress } from "@/types";
+import { useScannerStore } from "@/store/scanner";
 
 export function DiskTab() {
-  const [scanPath, setScanPath] = useState<string>("");
-  const [history, setHistory] = useState<string[]>([]);
-  const [isScanning, setIsScanning] = useState(false);
-  const [progress, setProgress] = useState<ScanProgress | null>(null);
-  const [results, setResults] = useState<DiskEntry[]>([]);
-  const [deletingPath, setDeletingPath] = useState<string | null>(null);
+  const {
+    isScanning, setIsScanning,
+    progress, setProgress,
+    results, setResults,
+    scanPath, setScanPath,
+    history, setHistory,
+    error, setError,
+    reset
+  } = useScannerStore();
 
   const { data: disks = [], isLoading: disksLoading } = useQuery({
     queryKey: ["disks"],
     queryFn: api.getDisks,
   });
 
+  // Initialize path and sync state
   useEffect(() => {
     const init = async () => {
+      // Set home dir if path is empty
+      if (!scanPath) {
+        try {
+          const home = await homeDir();
+          setScanPath(home);
+        } catch (e) {
+          console.error(e);
+        }
+      }
+
+      // Sync state from backend in case a scan is running or finished
       try {
-        const home = await homeDir();
-        setScanPath(home);
+        const [backendIsScanning, backendResults] = await api.getScanResults();
+        setIsScanning(backendIsScanning);
+        if (backendResults.length > 0) {
+          setResults(backendResults);
+        }
       } catch (e) {
-        console.error(e);
+        console.error("Failed to sync scan state:", e);
       }
     };
     init();
   }, []);
 
+  // Event listeners
   useEffect(() => {
-    const setupListener = async () => {
-      const unlisten = await listen<ScanProgress>("scan-progress", (event) => {
+    let unlistenProgress: (() => void) | undefined;
+    let unlistenFinished: (() => void) | undefined;
+
+    const setupListeners = async () => {
+      unlistenProgress = await listen<ScanProgress>("scan-progress", (event) => {
         setProgress(event.payload);
       });
-      return unlisten;
+      
+      unlistenFinished = await listen<DiskEntry[]>("scan-finished", (event) => {
+        setResults(event.payload);
+        setIsScanning(false);
+        setProgress(null);
+      });
     };
     
-    let unlistenFn: (() => void) | undefined;
-    setupListener().then(fn => unlistenFn = fn);
+    setupListeners();
     
     return () => {
-      if (unlistenFn) unlistenFn();
+      if (unlistenProgress) unlistenProgress();
+      if (unlistenFinished) unlistenFinished();
     };
-  }, []);
+  }, [setIsScanning, setProgress, setResults]);
 
   const startScan = async (path: string = scanPath) => {
     if (!path) return;
+    setError(null);
     setIsScanning(true);
     setResults([]);
-    setProgress({ scanned: 0, current_path: "Analyzing structures..." });
+    setProgress({ scanned: 0, current_path: "Initializing background scan..." });
+    
     try {
-      const data = await api.scanDirectory(path);
-      setResults(data);
+      await api.scanDirectory(path);
+      // We don't await results here anymore as they come via events
       setScanPath(path);
-    } catch (e) {
-      console.error(e);
-    } finally {
+    } catch (err: any) {
+      console.error(err);
+      setError(err.toString());
       setIsScanning(false);
       setProgress(null);
     }
   };
 
   const handleDrillDown = (entry: DiskEntry) => {
-    if (entry.is_dir) {
+    if (entry.is_dir && !isScanning) {
       setHistory([...history, scanPath]);
       startScan(entry.path);
     }
   };
 
   const handleBack = () => {
+    if (isScanning) return;
     const newHistory = [...history];
     const prev = newHistory.pop();
     if (prev) {
@@ -97,9 +128,9 @@ export function DiskTab() {
     try {
       await api.deletePath(path);
       setResults(results.filter((r) => r.path !== path));
-      setDeletingPath(null);
     } catch (e) {
       console.error(e);
+      setError("Failed to delete item. It might be in use or require higher permissions.");
     }
   };
 
@@ -157,13 +188,14 @@ export function DiskTab() {
           <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">Storage Analyzer</h3>
         </div>
 
-        <div className="bg-white/[0.03] rounded-3xl border border-white/10 overflow-hidden backdrop-blur-sm">
+        <div className="bg-white/[0.03] rounded-3xl border border-white/10 overflow-hidden backdrop-blur-sm shadow-xl">
           {/* Top Control Bar */}
           <div className="p-4 border-b border-white/5 flex items-center gap-3 bg-white/[0.01]">
              {history.length > 0 && (
                <button 
                  onClick={handleBack} 
-                 className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 rounded-xl text-white/60 transition-all active:scale-90"
+                 disabled={isScanning}
+                 className="w-10 h-10 flex items-center justify-center bg-white/5 hover:bg-white/10 disabled:opacity-20 rounded-xl text-white/60 transition-all active:scale-90"
                  title="Go back"
                >
                   <ArrowLeft size={18} />
@@ -174,6 +206,7 @@ export function DiskTab() {
                 <input 
                   value={scanPath}
                   onChange={(e) => setScanPath(e.target.value)}
+                  disabled={isScanning}
                   className="bg-transparent border-none focus:ring-0 text-[11px] text-white/60 w-full font-mono placeholder:text-white/10"
                   placeholder="Paste a path to scan..."
                 />
@@ -188,6 +221,14 @@ export function DiskTab() {
              </button>
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <div className="px-6 py-3 bg-red-500/10 border-b border-red-500/20 flex items-center gap-3 animate-slide-down">
+               <AlertCircle size={14} className="text-red-400 shrink-0" />
+               <p className="text-[10px] font-bold text-red-400 uppercase tracking-tight">{error}</p>
+            </div>
+          )}
+
           {/* Real-time Progress Bar */}
           {isScanning && progress && (
              <div className="px-6 py-4 bg-emerald-500/5 border-b border-emerald-500/10 space-y-2">
@@ -198,6 +239,9 @@ export function DiskTab() {
                    </div>
                    <span className="text-[10px] font-mono font-bold text-emerald-400/60">{progress.scanned.toLocaleString()} items found</span>
                 </div>
+                <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                   <div className="h-full bg-emerald-500 animate-pulse" style={{ width: '100%' }} />
+                </div>
                 <p className="text-[9px] text-white/20 truncate font-mono tracking-tight">{progress.current_path}</p>
              </div>
           )}
@@ -207,8 +251,8 @@ export function DiskTab() {
             {results.length > 0 ? results.map((entry, i) => (
               <div 
                 key={i} 
-                className={`p-4 flex items-center justify-between hover:bg-white/[0.04] transition-all group ${entry.is_dir && deletingPath !== entry.path ? 'cursor-pointer' : ''}`}
-                onClick={() => deletingPath !== entry.path && handleDrillDown(entry)}
+                className={`p-4 flex items-center justify-between hover:bg-white/[0.04] transition-all group ${entry.is_dir && !isScanning ? 'cursor-pointer' : ''}`}
+                onClick={() => !isScanning && handleDrillDown(entry)}
               >
                 <div className="flex items-center gap-4 overflow-hidden">
                   <div className={`w-10 h-10 shrink-0 rounded-2xl flex items-center justify-center border transition-all ${entry.is_dir ? 'bg-amber-500/10 border-amber-500/20 text-amber-500 group-hover:scale-105' : 'bg-white/5 border-white/5 text-white/20'}`}>
@@ -220,38 +264,28 @@ export function DiskTab() {
                   </div>
                 </div>
                 <div className="flex items-center gap-3 shrink-0" onClick={(e) => e.stopPropagation()}>
-                  {deletingPath === entry.path ? (
-                    <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 p-1.5 rounded-xl animate-fade-in shadow-[0_0_20px_rgba(239,68,68,0.1)]">
-                      <button 
-                         onClick={() => handleDelete(entry.path)}
-                         className="bg-red-500 hover:bg-red-400 text-red-950 text-[10px] font-bold px-3 py-1.5 rounded-lg transition-colors"
-                      >
-                        Delete
-                      </button>
-                      <button 
-                         onClick={() => setDeletingPath(null)}
-                         className="text-[10px] font-bold text-white/40 hover:text-white/60 px-2 py-1.5 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="text-[11px] font-mono font-bold text-white/40 bg-white/5 px-3 py-1.5 rounded-lg border border-white/5 group-hover:border-white/10 transition-colors">
-                        {fmtBytes(entry.size_bytes)}
-                      </span>
-                      
-                      <button 
-                        onClick={() => setDeletingPath(entry.path)}
-                        className="p-2 text-white/10 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
-                        title="Delete permanently"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                    <span className="text-[11px] font-mono font-bold text-white/40 bg-white/5 px-3 py-1.5 rounded-lg border border-white/5 group-hover:border-white/10 transition-colors">
+                      {fmtBytes(entry.size_bytes)}
+                    </span>
+                    
+                    <button 
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          `Permanently delete "${entry.name}"?\n\nThis action cannot be undone.`
+                        );
 
-                      {entry.is_dir && <ChevronRight size={14} className="text-white/10 group-hover:text-brand-400 group-hover:translate-x-1 transition-all" />}
-                    </>
-                  )}
+                        if (confirmed) {
+                          handleDelete(entry.path);
+                        }
+                      }}
+                      disabled={isScanning}
+                      className="p-2 text-white/10 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:hidden"
+                      title="Delete permanently"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+
+                    {entry.is_dir && <ChevronRight size={14} className="text-white/10 group-hover:text-brand-400 group-hover:translate-x-1 transition-all" />}
                 </div>
               </div>
             )) : !isScanning && (
