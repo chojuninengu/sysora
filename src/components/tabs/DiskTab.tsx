@@ -269,7 +269,15 @@ export function DiskTab() {
                     </span>
                     
                     <button 
-                      onClick={() => handleDelete(entry.path)}
+                      onClick={() => {
+                        const confirmed = window.confirm(
+                          `Permanently delete "${entry.name}"?\n\nThis action cannot be undone.`
+                        );
+
+                        if (confirmed) {
+                          handleDelete(entry.path);
+                        }
+                      }}
                       disabled={isScanning}
                       className="p-2 text-white/10 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100 disabled:hidden"
                       title="Delete permanently"
