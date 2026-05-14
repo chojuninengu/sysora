@@ -22,6 +22,7 @@ export const api = {
   getBattery: () => invoke<BatteryInfo>("get_battery"),
   getNetworkStats: () => invoke<NetworkInterface[]>("get_network_stats"),
   getNetworkHistory: () => invoke<NetworkHistoryPoint[]>("get_network_history"),
+  exportReport: (path: string) => invoke<void>("export_report", { path }),
   getTraySnapshot: () => invoke<TraySnapshot>("get_tray_snapshot"),
   getInstalledApps: () => invoke<AppInfo[]>("get_installed_apps"),
   uninstallApp: (id: string, path: string) => invoke<void>("uninstall_app", { id, path }),

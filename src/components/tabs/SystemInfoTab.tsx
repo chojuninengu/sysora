@@ -1,7 +1,9 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Monitor, Cpu, MemoryStick, BatteryWarning, Clock } from "lucide-react";
+import { Monitor, Cpu, MemoryStick, BatteryWarning, Clock, FileText, Download, Loader2 } from "lucide-react";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtUptime, healthColor, healthLabel } from "@/lib/utils";
+import { save } from "@tauri-apps/plugin-dialog";
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -27,86 +29,132 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
 export function SystemInfoTab() {
   const { data: sys } = useQuery({ queryKey: ["sysInfo"],  queryFn: api.getSystemInfo });
   const { data: bat } = useQuery({ queryKey: ["battery"],  queryFn: api.getBattery });
+  const [exporting, setExporting] = useState(false);
+
+  const handleExport = async () => {
+    try {
+      const path = await save({
+        title: "Export Machine Report",
+        filters: [{ name: "PDF Document", extensions: ["pdf"] }],
+        defaultPath: `sysora_report_${sys?.hostname || "machine"}.pdf`
+      });
+
+      if (path) {
+        setExporting(true);
+        await api.exportReport(path);
+        alert(`Success! Report exported to:\n${path}`);
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert(`Export failed: ${err.toString()}`);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const memPct = sys ? (sys.used_memory / sys.total_memory) * 100 : 0;
 
   return (
-    <div className="grid grid-cols-2 gap-4">
-      {/* OS */}
-      <Section icon={<Monitor size={15} />} title="Operating System">
-        <InfoRow label="OS"       value={`${sys?.os_name ?? "—"} ${sys?.os_version ?? ""}`} />
-        <InfoRow label="Kernel"   value={sys?.kernel_version ?? "—"} />
-        <InfoRow label="Hostname" value={sys?.hostname ?? "—"} />
-        <InfoRow label="Uptime"   value={sys ? fmtUptime(sys.uptime_secs) : "—"} />
-      </Section>
-
-      {/* CPU */}
-      <Section icon={<Cpu size={15} />} title="Processor">
-        <InfoRow label="Model"  value={sys?.cpu_brand ?? "—"} />
-        <InfoRow label="Cores"  value={sys ? `${sys.cpu_count} logical cores` : "—"} />
-        <InfoRow label="Usage"  value={sys ? `${sys.cpu_usage.toFixed(1)}%` : "—"} />
-      </Section>
-
-      {/* Memory */}
-      <Section icon={<MemoryStick size={15} />} title="Memory">
-        <InfoRow label="Total RAM"  value={sys ? fmtBytes(sys.total_memory) : "—"} />
-        <InfoRow label="Used"       value={sys ? fmtBytes(sys.used_memory)  : "—"} />
-        <InfoRow label="Free"       value={sys ? fmtBytes(sys.total_memory - sys.used_memory) : "—"} />
-        <InfoRow label="Usage"      value={`${memPct.toFixed(1)}%`} />
-        <InfoRow label="Swap total" value={sys ? fmtBytes(sys.total_swap) : "—"} />
-        <InfoRow label="Swap used"  value={sys ? fmtBytes(sys.used_swap)  : "—"} />
-      </Section>
-
-      {/* Battery */}
-      <Section icon={<BatteryWarning size={15} />} title="Battery Health">
-        {!bat?.present ? (
-          <p className="text-xs text-white/30 py-2">No battery detected — desktop machine or unsupported platform.</p>
-        ) : (
-          <>
-            <InfoRow label="Current charge"    value={`${bat.charge_percent.toFixed(0)}%`} />
-            <InfoRow label="Health"            value={`${bat.health_percent.toFixed(0)}% — ${healthLabel(bat.health_percent)}`} />
-            <InfoRow label="Design capacity"   value={bat.design_capacity_mwh   ? `${bat.design_capacity_mwh.toLocaleString()} mWh` : "—"} />
-            <InfoRow label="Current max cap."  value={bat.current_capacity_mwh  ? `${bat.current_capacity_mwh.toLocaleString()} mWh` : "—"} />
-            <InfoRow label="Cycle count"       value={bat.cycle_count != null   ? `${bat.cycle_count} cycles` : "—"} />
-            <InfoRow label="Status"            value={bat.status} />
-
-            {/* Health bar */}
-            <div className="mt-3">
-              <div className="flex justify-between mb-1">
-                <span className="text-[10px] text-white/30">0%</span>
-                <span className="text-[10px] text-white/30">Design capacity 100%</span>
-              </div>
-              <div className="relative h-2.5 rounded-full bg-white/5 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-700 ${healthColor(bat.health_percent)}`}
-                  style={{ width: `${bat.health_percent}%` }}
-                />
-                {/* Design capacity marker */}
-                <div className="absolute right-0 top-0 h-full w-px bg-white/20" />
-              </div>
-              <p className="text-[10px] text-white/30 mt-1 text-right">
-                Current max: {bat.health_percent.toFixed(0)}% of original
-              </p>
-            </div>
-          </>
-        )}
-      </Section>
-
-      {/* Quick specs summary card — great for sharing machine specs */}
-      <div className="col-span-2 card p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Clock size={14} className="text-brand-400" />
-          <h2 className="text-sm font-medium text-white/70">Quick Spec Summary</h2>
-          <span className="ml-auto text-[10px] text-white/25">Share this when selling your machine</span>
+    <div className="space-y-6">
+      {/* Header with Export Button */}
+      <div className="flex items-center justify-between px-1">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 rounded-2xl bg-brand-500/10 text-brand-400 border border-brand-500/10">
+            <Monitor size={20} />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white">System Information</h1>
+            <p className="text-xs text-white/30 uppercase tracking-widest font-bold">Hardware & Software Specs</p>
+          </div>
         </div>
-        <div className="font-mono text-xs text-white/60 bg-black/20 rounded-lg p-4 leading-relaxed select-text">
-          <p>Machine:  {sys?.hostname ?? "—"}</p>
-          <p>OS:       {sys?.os_name ?? "—"} {sys?.os_version ?? ""} (Kernel {sys?.kernel_version ?? "—"})</p>
-          <p>CPU:      {sys?.cpu_brand ?? "—"} · {sys?.cpu_count ?? 0} cores</p>
-          <p>RAM:      {sys ? fmtBytes(sys.total_memory) : "—"} total</p>
-          {bat?.present && (
-            <p>Battery:  Health {bat.health_percent.toFixed(0)}% · {bat.cycle_count ?? "?"} cycles · {bat.current_capacity_mwh ?? "?"}mWh remaining capacity</p>
+
+        <button 
+          onClick={handleExport}
+          disabled={exporting || !sys}
+          className="flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 disabled:opacity-30 disabled:cursor-not-allowed text-white text-xs font-bold rounded-xl transition-all active:scale-95 shadow-lg shadow-brand-500/10"
+        >
+          {exporting ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
+          {exporting ? "Generating PDF..." : "Export Full Report"}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        {/* OS */}
+        <Section icon={<Monitor size={15} />} title="Operating System">
+          <InfoRow label="OS"       value={`${sys?.os_name ?? "—"} ${sys?.os_version ?? ""}`} />
+          <InfoRow label="Kernel"   value={sys?.kernel_version ?? "—"} />
+          <InfoRow label="Hostname" value={sys?.hostname ?? "—"} />
+          <InfoRow label="Uptime"   value={sys ? fmtUptime(sys.uptime_secs) : "—"} />
+        </Section>
+
+        {/* CPU */}
+        <Section icon={<Cpu size={15} />} title="Processor">
+          <InfoRow label="Model"  value={sys?.cpu_brand ?? "—"} />
+          <InfoRow label="Cores"  value={sys ? `${sys.cpu_count} logical cores` : "—"} />
+          <InfoRow label="Usage"  value={sys ? `${sys.cpu_usage.toFixed(1)}%` : "—"} />
+        </Section>
+
+        {/* Memory */}
+        <Section icon={<MemoryStick size={15} />} title="Memory">
+          <InfoRow label="Total RAM"  value={sys ? fmtBytes(sys.total_memory) : "—"} />
+          <InfoRow label="Used"       value={sys ? fmtBytes(sys.used_memory)  : "—"} />
+          <InfoRow label="Free"       value={sys ? fmtBytes(sys.total_memory - sys.used_memory) : "—"} />
+          <InfoRow label="Usage"      value={`${memPct.toFixed(1)}%`} />
+          <InfoRow label="Swap total" value={sys ? fmtBytes(sys.total_swap) : "—"} />
+          <InfoRow label="Swap used"  value={sys ? fmtBytes(sys.used_swap)  : "—"} />
+        </Section>
+
+        {/* Battery */}
+        <Section icon={<BatteryWarning size={15} />} title="Battery Health">
+          {!bat?.present ? (
+            <p className="text-xs text-white/30 py-2">No battery detected — desktop machine or unsupported platform.</p>
+          ) : (
+            <>
+              <InfoRow label="Current charge"    value={`${bat.charge_percent.toFixed(0)}%`} />
+              <InfoRow label="Health"            value={`${bat.health_percent.toFixed(0)}% — ${healthLabel(bat.health_percent)}`} />
+              <InfoRow label="Design capacity"   value={bat.design_capacity_mwh   ? `${bat.design_capacity_mwh.toLocaleString()} mWh` : "—"} />
+              <InfoRow label="Current max cap."  value={bat.current_capacity_mwh  ? `${bat.current_capacity_mwh.toLocaleString()} mWh` : "—"} />
+              <InfoRow label="Cycle count"       value={bat.cycle_count != null   ? `${bat.cycle_count} cycles` : "—"} />
+              <InfoRow label="Status"            value={bat.status} />
+
+              {/* Health bar */}
+              <div className="mt-3">
+                <div className="flex justify-between mb-1">
+                  <span className="text-[10px] text-white/30">0%</span>
+                  <span className="text-[10px] text-white/30">Design capacity 100%</span>
+                </div>
+                <div className="relative h-2.5 rounded-full bg-white/5 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${healthColor(bat.health_percent)}`}
+                    style={{ width: `${bat.health_percent}%` }}
+                  />
+                  {/* Design capacity marker */}
+                  <div className="absolute right-0 top-0 h-full w-px bg-white/20" />
+                </div>
+                <p className="text-[10px] text-white/30 mt-1 text-right">
+                  Current max: {bat.health_percent.toFixed(0)}% of original
+                </p>
+              </div>
+            </>
           )}
+        </Section>
+
+        {/* Quick specs summary card — great for sharing machine specs */}
+        <div className="col-span-2 card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Clock size={14} className="text-brand-400" />
+            <h2 className="text-sm font-medium text-white/70">Quick Spec Summary</h2>
+            <span className="ml-auto text-[10px] text-white/25">Share this when selling your machine</span>
+          </div>
+          <div className="font-mono text-xs text-white/60 bg-black/20 rounded-lg p-4 leading-relaxed select-text">
+            <p>Machine:  {sys?.hostname ?? "—"}</p>
+            <p>OS:       {sys?.os_name ?? "—"} {sys?.os_version ?? ""} (Kernel {sys?.kernel_version ?? "—"})</p>
+            <p>CPU:      {sys?.cpu_brand ?? "—"} · {sys?.cpu_count ?? 0} cores</p>
+            <p>RAM:      {sys ? fmtBytes(sys.total_memory) : "—"} total</p>
+            {bat?.present && (
+              <p>Battery:  Health {bat.health_percent.toFixed(0)}% · {bat.cycle_count ?? "?"} cycles · {bat.current_capacity_mwh ?? "?"}mWh remaining capacity</p>
+            )}
+          </div>
         </div>
       </div>
     </div>

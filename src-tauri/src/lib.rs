@@ -157,18 +157,33 @@ pub struct ScanProgress {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn fmt_bytes(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.0} KB", bytes as f64 / KB as f64)
+    if bytes > 1024 * 1024 * 1024 {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes > 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     } else {
-        format!("{} B", bytes)
+        format!("{:.1} KB", bytes as f64 / 1024.0)
     }
+}
+
+fn fmt_uptime(secs: u64) -> String {
+    let days = secs / 86400;
+    let hours = (secs % 86400) / 3600;
+    let mins = (secs % 3600) / 60;
+    if days > 0 {
+        format!("{}d {}h {}m", days, hours, mins)
+    } else if hours > 0 {
+        format!("{}h {}m", hours, mins)
+    } else {
+        format!("{}m", mins)
+    }
+}
+
+fn health_label(pct: f32) -> &'static str {
+    if pct >= 90.0 { "Excellent" }
+    else if pct >= 80.0 { "Good" }
+    else if pct >= 50.0 { "Degraded" }
+    else { "Replace Soon" }
 }
 
 fn read_battery() -> BatteryInfo {
@@ -517,6 +532,178 @@ fn get_network_stats(state: State<SysState>) -> Vec<NetworkInterface> {
 #[tauri::command]
 fn get_network_history(state: State<SysState>) -> Vec<NetworkHistory> {
     state.net_history.lock().unwrap().iter().cloned().collect()
+}
+
+/// Exports a full system report as a PDF to the specified path.
+#[tauri::command]
+fn export_report(state: State<SysState>, path: String) -> Result<(), String> {
+    use printpdf::*;
+    use std::fs::File;
+    use std::io::BufWriter;
+
+    // 1. GATHER ALL DATA
+    let mut sys = state.sys.lock().unwrap();
+    sys.refresh_all();
+
+    let hostname = System::host_name().unwrap_or_else(|| "Unknown".to_string());
+    let os = format!("{} {}", System::name().unwrap_or_default(), System::os_version().unwrap_or_default());
+    let kernel = System::kernel_version().unwrap_or_default();
+    let uptime = fmt_uptime(System::uptime());
+    
+    let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string()).unwrap_or_default();
+    let cpu_cores = sys.cpus().len();
+    
+    let total_ram = sys.total_memory();
+    let used_ram = sys.used_memory();
+    
+    let battery = read_battery();
+    
+    let mut disks_data = Vec::new();
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    for disk in &disks {
+        disks_data.push((
+            disk.mount_point().to_string_lossy().to_string(),
+            disk.total_space(),
+            disk.available_space(),
+        ));
+    }
+
+    let mut networks_data = Vec::new();
+    {
+        let mut networks = state.networks.lock().unwrap();
+        networks.refresh(true);
+        for (name, data) in networks.iter() {
+            networks_data.push((name.clone(), data.total_received(), data.total_transmitted()));
+        }
+    }
+
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 2. GENERATE PDF
+    let (doc, page1, layer1) = PdfDocument::new("Sysora Machine Report", Mm(210.0), Mm(297.0), "Base");
+    let layer = doc.get_page(page1).get_layer(layer1);
+
+    // Font selection (platform-specific fallbacks)
+    let font_paths = if cfg!(target_os = "windows") {
+        vec!["C:\\Windows\\Fonts\\arial.ttf", "C:\\Windows\\Fonts\\segoeui.ttf"]
+    } else if cfg!(target_os = "macos") {
+        vec!["/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/Cache/Avenir.ttc"]
+    } else {
+        vec![
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+        ]
+    };
+
+    let mut font_loaded = None;
+    for fp in font_paths {
+        if std::path::Path::new(fp).exists() {
+            if let Ok(f) = File::open(fp) {
+                if let Ok(f_ref) = doc.add_external_font(f) {
+                    font_loaded = Some(f_ref);
+                    break;
+                }
+            }
+        }
+    }
+
+    let font = font_loaded.ok_or_else(|| "Could not find a suitable system font for PDF generation (DejaVuSans or Arial required).".to_string())?;
+
+    let mut y_pos = 280.0;
+
+    // Helper to draw text
+    let draw_text = |layer: &PdfLayerReference, text: &str, size: f32, x: f32, y: f32, font: &IndirectFontRef| {
+        layer.use_text(text, size, Mm(x), Mm(y), font);
+    };
+
+    // Header
+    layer.set_fill_color(Color::Rgb(Rgb::new(0.5, 0.2, 0.9, None))); // Brand purple
+    draw_text(&layer, "SYSORA MACHINE REPORT", 20.0, 20.0, y_pos, &font);
+    y_pos -= 10.0;
+    layer.set_fill_color(Color::Rgb(Rgb::new(0.4, 0.4, 0.4, None)));
+    draw_text(&layer, &format!("Generated on {} for {}", timestamp, hostname), 10.0, 20.0, y_pos, &font);
+    y_pos -= 20.0;
+
+    // Sections
+    let draw_section_header = |layer: &PdfLayerReference, title: &str, y: &mut f32| {
+        layer.set_fill_color(Color::Rgb(Rgb::new(0.2, 0.2, 0.2, None)));
+        layer.use_text(title, 14.0, Mm(20.0), Mm(*y), &font);
+        *y -= 2.0;
+        // Line
+        layer.set_outline_color(Color::Rgb(Rgb::new(0.8, 0.8, 0.8, None)));
+        layer.set_outline_thickness(0.5);
+        let line = vec![(Point::new(Mm(20.0), Mm(*y)), false), (Point::new(Mm(190.0), Mm(*y)), false)];
+        layer.add_line(Line { points: line, is_closed: false });
+        *y -= 10.0;
+    };
+
+    let draw_row = |layer: &PdfLayerReference, label: &str, value: &str, y: &mut f32| {
+        layer.set_fill_color(Color::Rgb(Rgb::new(0.5, 0.5, 0.5, None)));
+        layer.use_text(label, 10.0, Mm(25.0), Mm(*y), &font);
+        layer.set_fill_color(Color::Rgb(Rgb::new(0.1, 0.1, 0.1, None)));
+        layer.use_text(value, 10.0, Mm(70.0), Mm(*y), &font);
+        *y -= 8.0;
+    };
+
+    // 1. System
+    draw_section_header(&layer, "SYSTEM SPECIFICATIONS", &mut y_pos);
+    draw_row(&layer, "Operating System", &os, &mut y_pos);
+    draw_row(&layer, "Kernel Version", &kernel, &mut y_pos);
+    draw_row(&layer, "Hostname", &hostname, &mut y_pos);
+    draw_row(&layer, "Uptime", &uptime, &mut y_pos);
+    y_pos -= 5.0;
+
+    // 2. Processor
+    draw_section_header(&layer, "PROCESSOR (CPU)", &mut y_pos);
+    draw_row(&layer, "Model", &cpu_brand, &mut y_pos);
+    draw_row(&layer, "Cores", &format!("{} logical cores", cpu_cores), &mut y_pos);
+    y_pos -= 5.0;
+
+    // 3. Memory
+    draw_section_header(&layer, "MEMORY (RAM)", &mut y_pos);
+    draw_row(&layer, "Total RAM", &fmt_bytes(total_ram), &mut y_pos);
+    draw_row(&layer, "Used RAM", &fmt_bytes(used_ram), &mut y_pos);
+    draw_row(&layer, "Free RAM", &fmt_bytes(total_ram - used_ram), &mut y_pos);
+    y_pos -= 5.0;
+
+    // 4. Storage
+    draw_section_header(&layer, "STORAGE (DISKS)", &mut y_pos);
+    for (mount, total, avail) in disks_data {
+        let used = total - avail;
+        let pct = if total > 0 { (used as f64 / total as f64) * 100.0 } else { 0.0 };
+        draw_row(&layer, &mount, &format!("{} used of {} ({:.1}%)", fmt_bytes(used), fmt_bytes(total), pct), &mut y_pos);
+        if y_pos < 30.0 { break; }
+    }
+    y_pos -= 5.0;
+
+    // 5. Battery
+    if battery.present {
+        draw_section_header(&layer, "BATTERY HEALTH", &mut y_pos);
+        draw_row(&layer, "Health", &format!("{:.0}% — {}", battery.health_percent, health_label(battery.health_percent)), &mut y_pos);
+        draw_row(&layer, "Cycle Count", &format!("{} cycles", battery.cycle_count.unwrap_or(0)), &mut y_pos);
+        draw_row(&layer, "Status", &battery.status, &mut y_pos);
+        y_pos -= 5.0;
+    }
+
+    // 6. Network
+    if y_pos > 40.0 {
+        draw_section_header(&layer, "NETWORK INTERFACES", &mut y_pos);
+        for (name, rx, tx) in networks_data.iter().take(5) {
+            draw_row(&layer, name, &format!("Total RX: {} | Total TX: {}", fmt_bytes(*rx), fmt_bytes(*tx)), &mut y_pos);
+            if y_pos < 30.0 { break; }
+        }
+    }
+
+    // Footer
+    layer.set_fill_color(Color::Rgb(Rgb::new(0.7, 0.7, 0.7, None)));
+    layer.use_text("Generated by Sysora — Open Source System Manager", 8.0, Mm(20.0), Mm(10.0), &font);
+
+    // Save
+    let file = File::create(path).map_err(|e| e.to_string())?;
+    doc.save(&mut BufWriter::new(file)).map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 /// Returns battery info (health, charge, cycles).
@@ -1187,6 +1374,7 @@ fn get_app_icon_data_url(path: String) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| match event {
@@ -1304,6 +1492,7 @@ pub fn run() {
             get_battery,
             get_network_stats,
             get_network_history,
+            export_report,
             get_tray_snapshot,
             get_installed_apps,
             uninstall_app,
