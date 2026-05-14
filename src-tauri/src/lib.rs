@@ -150,41 +150,51 @@ fn read_battery() -> BatteryInfo {
     #[cfg(target_os = "linux")]
     {
         use std::fs;
-        let base = "/sys/class/power_supply/BAT0";
-        if std::path::Path::new(base).exists() {
-            let read = |f: &str| {
-                fs::read_to_string(format!("{}/{}", base, f))
-                    .ok()
-                    .and_then(|s| s.trim().parse::<u64>().ok())
-            };
-            let status_str = fs::read_to_string(format!("{}/status", base))
-                .unwrap_or_default()
-                .trim()
-                .to_string();
-            let charge_now = read("charge_now").or_else(|| read("energy_now"));
-            let charge_full = read("charge_full").or_else(|| read("energy_full"));
-            let charge_full_design =
-                read("charge_full_design").or_else(|| read("energy_full_design"));
-            let cycle_count = read("cycle_count").map(|v| v as u32);
-            let charge_pct = match (charge_now, charge_full) {
-                (Some(n), Some(f)) if f > 0 => (n as f32 / f as f32 * 100.0).min(100.0),
-                _ => 0.0,
-            };
-            let health_pct = match (charge_full, charge_full_design) {
-                (Some(f), Some(d)) if d > 0 => (f as f32 / d as f32 * 100.0).min(100.0),
-                _ => 0.0,
-            };
+        let power_supply_path = "/sys/class/power_supply";
+        if let Ok(entries) = fs::read_dir(power_supply_path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("BAT") {
+                    let base = format!("{}/{}", power_supply_path, name);
+                    let read = |f: &str| {
+                        fs::read_to_string(format!("{}/{}", base, f))
+                            .ok()
+                            .and_then(|s| s.trim().parse::<u64>().ok())
+                    };
+                    let status_str = fs::read_to_string(format!("{}/status", base))
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                    let charge_now = read("charge_now").or_else(|| read("energy_now"));
+                    let charge_full = read("charge_full").or_else(|| read("energy_full"));
+                    let charge_full_design =
+                        read("charge_full_design").or_else(|| read("energy_full_design"));
+                    let cycle_count = read("cycle_count").map(|v| v as u32);
+                    let charge_pct = match (charge_now, charge_full) {
+                        (Some(n), Some(f)) if f > 0 => (n as f32 / f as f32 * 100.0).min(100.0),
+                        _ => 0.0,
+                    };
+                    let health_pct = match (charge_full, charge_full_design) {
+                        (Some(f), Some(d)) if d > 0 => (f as f32 / d as f32 * 100.0).min(100.0),
+                        _ => 0.0,
+                    };
 
-            return BatteryInfo {
-                present: true,
-                charge_percent: charge_pct,
-                health_percent: health_pct,
-                design_capacity_mwh: charge_full_design.map(|v| v / 1000),
-                current_capacity_mwh: charge_full.map(|v| v / 1000),
-                cycle_count,
-                status: if status_str.is_empty() { "Unknown".to_string() } else { status_str },
-                time_to_empty_mins: None,
-            };
+                    return BatteryInfo {
+                        present: true,
+                        charge_percent: charge_pct,
+                        health_percent: health_pct,
+                        design_capacity_mwh: charge_full_design.map(|v| v / 1000),
+                        current_capacity_mwh: charge_full.map(|v| v / 1000),
+                        cycle_count,
+                        status: if status_str.is_empty() {
+                            "Unknown".to_string()
+                        } else {
+                            status_str
+                        },
+                        time_to_empty_mins: None,
+                    };
+                }
+            }
         }
     }
 
@@ -794,8 +804,38 @@ fn uninstall_app(id: String, path: String) -> Result<(), String> {
 
     #[cfg(target_os = "windows")]
     {
-        let _ = (id, path);
-        Err("Uninstallation not yet implemented for Windows".into())
+        use winreg::enums::*;
+        use winreg::RegKey;
+        use std::process::Command;
+
+        let roots = vec![
+            (HKEY_LOCAL_MACHINE, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+            (HKEY_LOCAL_MACHINE, "SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+            (HKEY_CURRENT_USER, "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        ];
+
+        for (root_hkey, reg_path) in roots {
+            let root = RegKey::predef(root_hkey);
+            if let Ok(key_parent) = root.open_subkey(reg_path) {
+                if let Ok(sub_key) = key_parent.open_subkey(&id) {
+                    let uninstall_string: String = sub_key.get_value("UninstallString").unwrap_or_default();
+                    if !uninstall_string.is_empty() {
+                        // Execute the uninstall string using cmd /C to handle paths with spaces/args
+                        let status = Command::new("cmd")
+                            .args(["/C", &uninstall_string])
+                            .status()
+                            .map_err(|e| format!("Failed to launch uninstaller: {}", e))?;
+                        
+                        if status.success() {
+                            return Ok(());
+                        } else {
+                            return Err(format!("Uninstaller exited with status: {}", status));
+                        }
+                    }
+                }
+            }
+        }
+        Err(format!("Could not find uninstaller in registry for ID: {}", id))
     }
 }
 
