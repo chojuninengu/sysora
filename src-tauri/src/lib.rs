@@ -393,11 +393,20 @@ fn kill_process(pid: u32, state: State<SysState>) -> Result<(), String> {
             let status = Command::new("powershell")
                 .args([
                     "-Command",
-                    &format!("Start-Process taskkill -ArgumentList '/F', '/PID', '{}' -Verb RunAs -WindowStyle Hidden", pid)
+                    &format!(
+                        "$taskkill = Start-Process taskkill -ArgumentList '/F', '/PID', '{}' -Verb RunAs -WindowStyle Hidden -Wait -PassThru; exit $taskkill.ExitCode",
+                        pid
+                    )
                 ])
                 .status()
                 .map_err(|e| e.to_string())?;
-            if status.success() { return Ok(()); }
+
+            if status.success() {
+                sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+                if sys.process(sysinfo::Pid::from_u32(pid)).is_none() {
+                    return Ok(());
+                }
+            }
         }
 
         Err("Failed to kill process. Even with elevation, this process might be protected by the system.".to_string())
