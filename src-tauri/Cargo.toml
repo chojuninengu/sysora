@@ -31,6 +31,8 @@ printpdf = "0.7"
 walkdir = "2.5.0"
 base64 = "0.22"
 battery = "0.7.0"
+clap = { version = "4", features = ["derive"] }
+colored = "2"
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.52"
 [target.'cfg(target_os = "macos")'.dependencies]

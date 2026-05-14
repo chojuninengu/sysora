@@ -170,7 +170,7 @@ pub struct ScanProgress {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn fmt_bytes(bytes: u64) -> String {
+pub fn fmt_bytes(bytes: u64) -> String {
     if bytes > 1024 * 1024 * 1024 {
         format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
     } else if bytes > 1024 * 1024 {
@@ -180,7 +180,7 @@ fn fmt_bytes(bytes: u64) -> String {
     }
 }
 
-fn fmt_uptime(secs: u64) -> String {
+pub fn fmt_uptime(secs: u64) -> String {
     let days = secs / 86400;
     let hours = (secs % 86400) / 3600;
     let mins = (secs % 3600) / 60;
@@ -193,14 +193,14 @@ fn fmt_uptime(secs: u64) -> String {
     }
 }
 
-fn health_label(pct: f32) -> &'static str {
+pub fn health_label(pct: f32) -> &'static str {
     if pct >= 90.0 { "Excellent" }
     else if pct >= 80.0 { "Good" }
     else if pct >= 50.0 { "Degraded" }
     else { "Replace Soon" }
 }
 
-fn read_battery() -> BatteryInfo {
+pub fn read_battery() -> BatteryInfo {
     #[cfg(target_os = "linux")]
     {
         use std::fs;
