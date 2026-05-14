@@ -1,5 +1,7 @@
 import { Search, Circle } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useAppStore } from "@/store/app";
+import { api } from "@/lib/api";
 
 const TAB_TITLES: Record<string, string> = {
   memory:      "Memory Monitor",
@@ -12,6 +14,8 @@ const TAB_TITLES: Record<string, string> = {
 
 export function TopBar() {
   const { activeTab, searchQuery, setSearchQuery } = useAppStore();
+  const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
+  
   const showSearch = ["memory", "processes", "apps"].includes(activeTab);
 
   return (
@@ -36,7 +40,9 @@ export function TopBar() {
       <div className="ml-auto flex items-center gap-3">
         <div className="flex items-center gap-1.5">
           <Circle size={6} className="fill-emerald-400 text-emerald-400 animate-pulse-slow" />
-          <span className="text-[11px] text-surface-400 dark:text-white/30">Live · 3s</span>
+          <span className="text-[11px] text-surface-400 dark:text-white/30">
+            Live · {settings?.refresh_interval_secs ?? 3}s
+          </span>
         </div>
       </div>
     </header>
