@@ -50,6 +50,7 @@ export interface TraySnapshot {
   total_memory: number;
   disk_used_pct: number;
   battery: BatteryInfo;
+  network: [number, number];
 }
 
 export interface AppInfo {
@@ -76,6 +77,24 @@ export interface DiskEntry {
   is_dir: boolean;
 }
 
+export interface NetworkInterface {
+  name: string;
+  rx_bytes: number;
+  tx_bytes: number;
+  rx_speed: number;
+  tx_speed: number;
+  total_rx: number;
+  total_tx: number;
+  mac_address: string;
+  ip_address: string;
+}
+
+export interface NetworkHistoryPoint {
+  ts: number;
+  rx_speed: number;
+  tx_speed: number;
+}
+
 export interface ScanProgress {
   scanned: number;
   current_path: string;
@@ -90,6 +109,7 @@ export interface HistoryPoint {
 export type TabId =
   | "memory"
   | "processes"
+  | "network"
   | "apps"
   | "disk"
   | "system-info"
