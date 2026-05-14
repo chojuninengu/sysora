@@ -1,6 +1,6 @@
 # Sysora — System Monitor & Manager
 
-> Cross-platform desktop app to monitor memory, kill hungry processes, inspect system specs, scan disk usage, and check battery health — all from a modern dark dashboard with a tray icon.
+> Cross-platform desktop app to monitor memory, kill hungry processes, inspect system specs, scan disk usage, track fans, and view historical usage trends — all from a modern dark/light dashboard or your terminal.
 
 Built with **Rust + Tauri v2** on the backend and **React 19 + Vite + Tailwind CSS** on the frontend. Runs natively on **Ubuntu**, **macOS**, and **Windows**.
 
@@ -8,7 +8,7 @@ Built with **Rust + Tauri v2** on the backend and **React 19 + Vite + Tailwind C
 
 ## 📥 Download Latest Release
 
-Get the latest stable version (Phase 2) for your operating system:
+Get the latest stable version (Phase 3) for your operating system:
 
 | Platform | Installer | Portability |
 |---|---|---|
@@ -18,23 +18,32 @@ Get the latest stable version (Phase 2) for your operating system:
 
 ---
 
-## 🚀 Features (Phase 2 Stable)
+## 🚀 Features (Phase 3 Stable)
 
 ### 📊 Real-time Monitoring
 - **Resource Pulse**: Live CPU and RAM usage history sparklines (last 60s).
 - **Process Manager**: Kill hungry processes with one click, search by name, and sort by memory usage.
 - **Stat Cards**: Instant glance at RAM, CPU, Disk, and Battery health/status.
+- **Fan Monitoring**: Track fan speeds (RPM) and system temperatures in real-time (Linux).
+
+### 📈 Observability & History
+- **SQLite History**: Periodic system snapshots stored in a local database.
+- **Trend Charts**: Visualize CPU, RAM, and Disk usage over the last 1h, 6h, 24h, or 7 days.
+- **Usage Peaks**: Automatically calculate average and peak resource usage for any time range.
 
 ### 💾 Storage & Files
 - **Disk usage**: Monitor all mounted partitions and removable drives.
 - **Deep Scanner**: Find what's eating your space! Scan any directory to find the largest files and folders.
 - **Safe Purge**: Delete heavy files/folders directly from the scanner with confirmation.
 
+### ⌨️ CLI Interface
+- **Headless Mode**: Run `sysora status` for a quick system snapshot in your terminal.
+- **Tooling**: Export JSON data for scripts or check specific sensors with `sysora fans`.
+
 ### ⚙️ App Management & Settings
+- **Theme Toggles**: Seamlessly switch between **Dark**, **Light**, and **System** themes.
 - **Installed Apps**: List and manage installed applications.
-- **Persistence**: Save your preferences for refresh rates and alert thresholds.
-- **Tray Power**: Complete control from the system tray: quick specs, settings, and one-click toggle.
-- **Native Experience**: "Close to Tray" and "Start minimized" support.
+- **Tray Power**: Complete control from the system tray: quick specs, settings, and history access.
 
 ---
 
@@ -43,20 +52,20 @@ Get the latest stable version (Phase 2) for your operating system:
 ```
 ┌──────────────────────────────────────────────────────┐
 │                React 19 + Vite frontend               │
-│  Memory  │  Processes  │  Apps  │  Disk  │  Sys Info  │
+│  Memory │ Processes │ Network │ History │ Sys Info    │
 └──────────────────┬───────────────────────────────────┘
                    │ invoke() / emit()  (Tauri IPC)
 ┌──────────────────▼───────────────────────────────────┐
 │              Tauri v2 bridge                          │
-│   Commands: scan_directory · kill_process · settings  │
+│   Commands: get_history · get_fans · save_settings    │
 │   Events:   scan-progress · process-update            │
-│   Tray:     toggle · system-info · settings · quit    │
-└──────────────────┬───────────────────────────────────┐
+│   Tray:     toggle · status · settings · quit         │
+└──────────────────┬───────────────────────────────────┘
                    │
 ┌──────────────────▼───────────────────────────────────┐
 │              Rust backend                             │
-│   sysinfo crate  │  WalkDir scanner  │  Battery reader│
-│   /proc · WMI · sysctl (cross-platform OS APIs)       │
+│  SQLite (rusqlite)  │  sysinfo crate  │  hwmon reader │
+│  Background Task    │  Battery reader │  CLI (clap)   │
 └───────────────────────────────────────────────────────┘
         Runs on Ubuntu · macOS · Windows
 ```
@@ -68,6 +77,8 @@ Get the latest stable version (Phase 2) for your operating system:
 | Layer | Technology |
 |---|---|
 | **Backend** | Rust, Tauri v2 |
+| **Database** | SQLite (rusqlite) |
+| **CLI** | Clap v4 |
 | **Frontend** | React 19, Vite, Tailwind CSS |
 | **State** | Zustand, TanStack Query |
 | **Charts** | Recharts |
@@ -81,11 +92,13 @@ Get the latest stable version (Phase 2) for your operating system:
 sysora/
 ├── src/                        # React frontend
 │   ├── components/
-│   │   ├── charts/             # History graphs
-│   │   ├── tabs/               # Memory, Apps, Disk, Settings
-│   │   └── layout/             # Shell, Sidebar, StatCards
+│   │   ├── charts/             # History & Network graphs
+│   │   ├── tabs/               # Memory, History, Disk, Settings
+│   │   └── layout/             # Shell, Sidebar, TopBar
 ├── src-tauri/                  # Rust backend
 │   ├── src/lib.rs              # Core logic & Commands
+│   ├── src/db.rs               # SQLite persistence
+│   ├── src/cli.rs              # CLI command handling
 │   └── capabilities/           # Security & Permissions
 ├── images/                     # Project assets (Logo, Icons)
 └── .github/workflows/          # CI/CD Release pipeline
@@ -99,11 +112,7 @@ sysora/
 - **Node.js** ≥ 20
 - **Rust** (stable)
 - **Tauri v2 CLI** (`npm install -g @tauri-apps/cli`)
-- **Linux (Ubuntu/Debian) dependencies**:
-  ```bash
-  sudo apt update
-  sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-  ```
+- **Linux dependencies**: `libwebkit2gtk-4.1-dev`, `libayatana-appindicator3-dev`, etc.
 
 ### Run in development
 
@@ -125,46 +134,36 @@ npm run tauri dev
 
 ### ✅ Phase 1 — Foundation
 - [x] Live process list + Kill button
-- [x] Disk usage bars
 - [x] System specs + Battery health
-- [x] Tray popup snapshot
 
-### ✅ Phase 2 — Management (Current)
+### ✅ Phase 2 — Management
 - [x] **App Manager**: List installed applications.
-- [x] **Settings**: Refresh rate, startup behavior, and persistence.
-- [x] **Disk Scanner**: Find largest files/folders with deletion support.
-- [x] **Resource History**: 60s CPU/RAM chart in Memory tab.
-- [x] **Persistence**: Save user settings to JSON.
+- [x] **Settings**: Refresh rate, startup behavior.
+- [x] **Disk Scanner**: Find largest files/folders.
 
-### 🔲 Phase 3 — Polish
-- [ ] Notifications: Alert when RAM/CPU crosses threshold.
-- [ ] Branded icon + Splash screen.
+### ✅ Phase 3 — Polish & Observability (Current)
+- [x] **Dark/Light Themes**: Full Tailwind support.
+- [x] **CLI Snapshot**: `sysora status` command.
+- [x] **SQLite Tracking**: 30-day historical trends.
+- [x] **Cooling & Fans**: Real-time RPM tracking.
+
+### 🔲 Phase 4 — Enterprise
 - [ ] Export system report as PDF.
-- [ ] Full Windows uninstallation logic.
-
----
-
-## Battery Health — How It Works
-
-Sysora distinguishes between two different battery numbers that most tools confuse:
-
-| Metric | What it means |
-|---|---|
-| **Current charge** | How full the battery is right now (0–100%) |
-| **Battery health** | Current max capacity vs the original design capacity |
-
-A battery with **60% health** that is fully charged will only last 60% as long as it did when it was new — even though it shows "100% charge".
-
-This is read from `/sys/class/power_supply/BAT*/` on Linux (`energy_full` vs `energy_full_design`). macOS and Windows native APIs are supported via the `battery` crate.
+- [ ] Network traffic breakdown per process.
+- [ ] Custom alert rules (Email/Slack notifications).
 
 ---
 
 ## Contributing
 
-1. Fork the repo
-2. Create a feature branch: `git checkout -b feat/my-feature`
-3. Commit changes: `git commit -m "feat: add feature"`
-4. Open a PR against `main`
+We love contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
+
+---
+
+
+## Contributing
+
+We love contributions! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines on how to get started.
 
 ---
 
