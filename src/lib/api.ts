@@ -14,6 +14,7 @@ import type {
   NetworkHistoryPoint,
   TempReading,
   FanReading,
+  HistoricalPoint,
 } from "@/types";
 
 export const api = {
@@ -26,6 +27,9 @@ export const api = {
   getNetworkHistory: () => invoke<NetworkHistoryPoint[]>("get_network_history"),
   getTemperatures: () => invoke<TempReading[]>("get_temperatures"),
   getFans: () => invoke<FanReading[]>("get_fans"),
+  getHistoricalTrends: (hours: number) => invoke<HistoricalPoint[]>("get_historical_trends", { hours }),
+  clearHistory: () => invoke<void>("clear_history"),
+  getDbStats: () => invoke<[number, number]>("get_db_stats"),
   exportReport: (path: string) => invoke<void>("export_report", { path }),
   getTraySnapshot: () => invoke<TraySnapshot>("get_tray_snapshot"),
   getInstalledApps: () => invoke<AppInfo[]>("get_installed_apps"),

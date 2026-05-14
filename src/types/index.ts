@@ -117,6 +117,16 @@ export interface FanReading {
   rpm: number;
 }
 
+export interface HistoricalPoint {
+  ts: number;
+  cpu_pct: number;
+  ram_used: number;
+  ram_total: number;
+  disk_used: number;
+  disk_total: number;
+  cpu_temp: number;
+}
+
 export interface HistoryPoint {
   ts: number;
   cpu: number;
@@ -129,5 +139,6 @@ export type TabId =
   | "network"
   | "apps"
   | "disk"
+  | "history"
   | "system-info"
   | "settings";

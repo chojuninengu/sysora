@@ -1,6 +1,6 @@
 import {
   Activity, List, AppWindow, HardDrive,
-  Info, Settings, Cpu, Globe
+  Info, Settings, Cpu, Globe, History
 } from "lucide-react";
 import { useAppStore } from "@/store/app";
 import type { TabId } from "@/types";
@@ -10,6 +10,7 @@ const NAV = [
   { id: "memory",     label: "Memory",     icon: Activity  },
   { id: "processes",  label: "Processes",  icon: List      },
   { id: "network",    label: "Network",    icon: Globe     },
+  { id: "history",    label: "History",    icon: History   },
   { section: "Manage" },
   { id: "apps",       label: "Applications", icon: AppWindow },
   { id: "disk",       label: "Disk Scanner", icon: HardDrive },

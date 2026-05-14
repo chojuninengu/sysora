@@ -6,10 +6,13 @@ import {
   RotateCcw, 
   Save,
   Rocket,
-  AlertCircle
+  AlertCircle,
+  Database,
+  Trash2
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { AppSettings } from "@/types";
+import { fmtBytes } from "@/lib/utils";
 
 const DEFAULT_SETTINGS: AppSettings = {
   refresh_interval_secs: 3,
@@ -27,15 +30,26 @@ export function SettingsTab() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const [dbStats, setDbStats] = useState<[number, number] | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+
+  const loadSettings = useCallback(() => {
     invoke<AppSettings>("get_settings")
       .then(setSettings)
       .catch((e) => {
         console.error("Failed to load settings:", e);
-        // If backend fails, use defaults so UI is still usable
         setSettings(DEFAULT_SETTINGS);
       });
+    
+    invoke<[number, number]>("get_db_stats")
+      .then(setDbStats)
+      .catch(console.error);
   }, []);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
 
   const handleSave = useCallback(async (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -195,7 +209,7 @@ export function SettingsTab() {
           <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">App Preferences</h3>
         </div>
 
-        <div className="bg-white/[0.03] rounded-2xl border border-white/10 overflow-hidden divide-y divide-white/5 dark:bg-white/[0.03] dark:border-white/10 bg-white border-surface-200">
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl border border-surface-200 dark:border-white/10 overflow-hidden divide-y divide-surface-200 dark:divide-white/5">
           <div className="p-5 flex items-center justify-between hover:bg-white/[0.02] transition-all group dark:hover:bg-white/[0.02] hover:bg-surface-50">
             <div>
               <h4 className="text-sm font-semibold text-surface-800 dark:text-white group-hover:text-brand-400 transition-colors">Theme</h4>
@@ -252,6 +266,61 @@ export function SettingsTab() {
         </div>
       </section>
 
+      {/* Storage & History */}
+      <section className="space-y-4">
+        <div className="flex items-center gap-2 text-surface-400 dark:text-white/50 px-1">
+          <Database size={14} className="text-sky-600 dark:text-sky-400" />
+          <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]">Storage & History</h3>
+        </div>
+
+        <div className="bg-white dark:bg-white/[0.03] rounded-2xl border border-surface-200 dark:border-white/10 p-5 flex items-center justify-between">
+          <div>
+            <h4 className="text-sm font-semibold text-surface-800 dark:text-white">Local Database</h4>
+            <p className="text-[10px] text-surface-400 dark:text-white/40 font-medium">
+              History is using <span className="text-surface-900 dark:text-white font-bold">{dbStats ? fmtBytes(dbStats[0]) : "..."}</span> · {dbStats ? dbStats[1].toLocaleString() : "..."} snapshots recorded
+            </p>
+          </div>
+          
+          {showConfirm ? (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowConfirm(false)}
+                className="px-3 py-1.5 text-[10px] font-bold text-surface-400 hover:text-surface-900 dark:hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setClearing(true);
+                  try {
+                    await invoke("clear_history");
+                    loadSettings();
+                    setShowConfirm(false);
+                  } catch (e) {
+                    setError("Failed to clear history: " + String(e));
+                  } finally {
+                    setClearing(false);
+                  }
+                }}
+                disabled={clearing}
+                className="px-3 py-1.5 text-[10px] font-bold bg-red-600 text-white rounded-lg shadow-lg hover:bg-red-500 transition-colors flex items-center gap-2"
+              >
+                {clearing ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Confirm Wipe
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowConfirm(true)}
+              className="flex items-center gap-2 px-4 py-2 text-[10px] font-bold text-red-500 hover:text-red-600 bg-red-500/10 hover:bg-red-500/20 rounded-xl transition-all border border-red-500/20"
+            >
+              <Trash2 size={12} />
+              Clear History
+            </button>
+          )}
+        </div>
+      </section>
+
       {/* Reset */}
       <div className="pt-4 flex justify-center">
         <button
@@ -263,6 +332,12 @@ export function SettingsTab() {
         </button>
       </div>
     </div>
+  );
+}
+
+function Loader2({ size, className }: { size: number, className: string }) {
+  return (
+    <div className={`w-${size/4} h-${size/4} border-2 border-white/20 border-t-white rounded-full animate-spin ${className}`} />
   );
 }
 

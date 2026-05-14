@@ -9,6 +9,9 @@ use tauri::{
 };
 use tokio::time::{sleep, Duration};
 
+mod db;
+use db::{DbManager, HistoricalPoint};
+
 // ─── Shared system state ────────────────────────────────────────────────────
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct AppSettings {
@@ -53,6 +56,7 @@ pub struct SysState {
     pub networks: Mutex<sysinfo::Networks>,
     pub net_history: Mutex<VecDeque<NetworkHistory>>,
     pub components: Mutex<sysinfo::Components>,
+    pub db: Mutex<DbManager>,
 }
 
 // ─── Data types (serialized to JSON for the frontend) ───────────────────────
@@ -614,6 +618,29 @@ fn get_network_stats(state: State<SysState>) -> Vec<NetworkInterface> {
             ip_address: data.ip_networks().iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", "),
         }
     }).collect()
+}
+
+/// Returns historical trend data for the last N hours.
+#[tauri::command]
+fn get_historical_trends(state: State<SysState>, hours: u32) -> Result<Vec<HistoricalPoint>, String> {
+    let db = state.db.lock().unwrap();
+    db.get_history(hours).map_err(|e| e.to_string())
+}
+
+/// Clears all historical data from the database.
+#[tauri::command]
+fn clear_history(state: State<SysState>) -> Result<(), String> {
+    let db = state.db.lock().unwrap();
+    db.clear().map_err(|e| e.to_string())
+}
+
+/// Returns the current database size in bytes and number of records.
+#[tauri::command]
+fn get_db_stats(state: State<SysState>) -> Result<(u64, usize), String> {
+    let db = state.db.lock().unwrap();
+    let size = db.get_db_size().map_err(|e| e.to_string())?;
+    let count = db.get_count().map_err(|e| e.to_string())?;
+    Ok((size, count))
 }
 
 /// Returns all detected temperature sensors.
@@ -1305,6 +1332,10 @@ fn delete_path(path: String) -> Result<(), String> {
     }
 }
 
+fn get_db_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("history.db")
+}
+
 fn get_settings_path(app: &AppHandle) -> std::path::PathBuf {
     app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("settings.json")
 }
@@ -1346,6 +1377,8 @@ async fn start_refresh_loop(app: AppHandle) {
     use std::time::{Instant, Duration as StdDuration};
 
     let mut last_notification = Instant::now() - StdDuration::from_secs(60);
+    let mut last_db_snapshot = Instant::now() - StdDuration::from_secs(60);
+    let mut last_prune = Instant::now() - StdDuration::from_secs(3600); // Prune once an hour
 
     loop {
         let (interval, ram_threshold, cpu_threshold, temp_threshold) = {
@@ -1471,6 +1504,47 @@ async fn start_refresh_loop(app: AppHandle) {
 
         let _ = app.emit("process-update", ());
         let _ = app.emit("network-update", ());
+
+        // ─── Database recording (1m interval) ───
+        if last_db_snapshot.elapsed() >= StdDuration::from_secs(60) {
+            let mut disks = sysinfo::Disks::new_with_refreshed_list();
+            disks.refresh(true);
+            let mut disk_used = 0;
+            let mut disk_total = 0;
+            for d in disks.iter() {
+                disk_total += d.total_space();
+                disk_used += d.total_space() - d.available_space();
+            }
+
+            let max_temp = {
+                let mut comps = state.components.lock().unwrap();
+                comps.refresh(true);
+                comps.iter().filter_map(|c| c.temperature()).fold(0.0, f32::max)
+            };
+
+            let point = HistoricalPoint {
+                ts,
+                cpu_pct: cpu_usage,
+                ram_used: used_mem,
+                ram_total: total_mem,
+                disk_used,
+                disk_total,
+                cpu_temp: max_temp,
+            };
+
+            {
+                let db = state.db.lock().unwrap();
+                let _ = db.save_snapshot(&point);
+            }
+            last_db_snapshot = Instant::now();
+        }
+
+        // ─── Auto-pruning (30 days) ───
+        if last_prune.elapsed() >= StdDuration::from_secs(3600) {
+            let db = state.db.lock().unwrap();
+            let _ = db.prune(30);
+            last_prune = Instant::now();
+        }
     }
 }
 
@@ -1522,6 +1596,12 @@ pub fn run() {
             let args: Vec<String> = std::env::args().collect();
             let is_minimized = args.iter().any(|a| a == "--minimized") || start_minimized;
 
+            let db_path = get_db_path(app.handle());
+            if let Some(parent) = db_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let db_manager = DbManager::new(db_path).expect("Failed to initialize database");
+
             app.manage(SysState {
                 sys: Mutex::new(System::new_all()),
                 settings: Mutex::new(settings),
@@ -1531,6 +1611,7 @@ pub fn run() {
                 networks: Mutex::new(sysinfo::Networks::new_with_refreshed_list()),
                 net_history: Mutex::new(VecDeque::with_capacity(60)),
                 components: Mutex::new(sysinfo::Components::new_with_refreshed_list()),
+                db: Mutex::new(db_manager),
             });
 
             // Force the window icon for Linux dock
@@ -1638,6 +1719,9 @@ pub fn run() {
             delete_path,
             get_history,
             get_fans,
+            get_historical_trends,
+            clear_history,
+            get_db_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");

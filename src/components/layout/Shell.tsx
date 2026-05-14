@@ -8,6 +8,7 @@ import { NetworkTab }   from "@/components/tabs/NetworkTab";
 import { AppsTab }      from "@/components/tabs/AppsTab";
 import { DiskTab }      from "@/components/tabs/DiskTab";
 import { SystemInfoTab } from "@/components/tabs/SystemInfoTab";
+import { HistoryTab } from "@/components/tabs/HistoryTab";
 import { SettingsTab }  from "@/components/tabs/SettingsTab";
 import { useAppStore }  from "@/store/app";
 import { api } from "@/lib/api";
@@ -49,6 +50,7 @@ export function Shell() {
           {activeTab === "network"     && <NetworkTab />}
           {activeTab === "apps"        && <AppsTab />}
           {activeTab === "disk"        && <DiskTab />}
+          {activeTab === "history"     && <HistoryTab />}
           {activeTab === "system-info" && <SystemInfoTab />}
           {activeTab === "settings"    && <SettingsTab />}
         </main>
