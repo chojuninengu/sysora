@@ -1,6 +1,6 @@
 import {
   Activity, List, AppWindow, HardDrive,
-  Info, Settings, Cpu,
+  Info, Settings, Cpu, Globe
 } from "lucide-react";
 import { useAppStore } from "@/store/app";
 import type { TabId } from "@/types";
@@ -9,6 +9,7 @@ const NAV = [
   { section: "Monitor" },
   { id: "memory",     label: "Memory",     icon: Activity  },
   { id: "processes",  label: "Processes",  icon: List      },
+  { id: "network",    label: "Network",    icon: Globe     },
   { section: "Manage" },
   { id: "apps",       label: "Applications", icon: AppWindow },
   { id: "disk",       label: "Disk Scanner", icon: HardDrive },
@@ -66,7 +67,7 @@ export function Sidebar() {
 
       {/* Version footer */}
       <div className="px-4 py-3 border-t border-white/5">
-        <p className="text-[10px] text-white/20">v0.2.0 · Phase 2 Stable</p>
+        <p className="text-[10px] text-white/20">v0.3.0 · Phase 3</p>
       </div>
     </aside>
   );
