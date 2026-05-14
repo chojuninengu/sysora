@@ -24,7 +24,8 @@ export const api = {
   getAppIconDataUrl: (path: string) => invoke<string>("get_app_icon_data_url", { path }),
   getSettings: () => invoke<AppSettings>("get_settings"),
   saveSettings: (settings: AppSettings) => invoke<void>("save_settings", { settings }),
-  scanDirectory: (path: string) => invoke<DiskEntry[]>("scan_directory", { path }),
+  scanDirectory: (path: string) => invoke<void>("scan_directory", { path }),
+  getScanResults: () => invoke<[boolean, DiskEntry[]]>("get_scan_results"),
   deletePath: (path: string) => invoke<void>("delete_path", { path }),
   getHistory: () => invoke<HistoryPoint[]>("get_history"),
 };

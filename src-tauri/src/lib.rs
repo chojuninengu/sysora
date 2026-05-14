@@ -42,6 +42,8 @@ pub struct SysState {
     pub sys: Mutex<System>,
     pub settings: Mutex<AppSettings>,
     pub history: Mutex<VecDeque<SnapPoint>>,
+    pub scan_results: Mutex<Vec<DiskEntry>>,
+    pub is_scanning: Mutex<bool>,
 }
 
 // ─── Data types (serialized to JSON for the frontend) ───────────────────────
@@ -350,6 +352,7 @@ fn get_processes(state: State<SysState>) -> Vec<ProcessInfo> {
 }
 
 /// Kills a process by PID. Returns success or an error message.
+/// If normal kill fails (permission denied), it attempts to kill with elevation.
 #[tauri::command]
 fn kill_process(pid: u32, state: State<SysState>) -> Result<(), String> {
     let mut sys = state.sys.lock().unwrap();
@@ -358,11 +361,46 @@ fn kill_process(pid: u32, state: State<SysState>) -> Result<(), String> {
     sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
     
     if let Some(p) = sys.process(sysinfo::Pid::from_u32(pid)) {
+        // 1. Try normal kill
         if p.kill() {
-            Ok(())
-        } else {
-            Err("Failed to kill process (permission denied or system protected)".to_string())
+            return Ok(());
         }
+
+        // 2. If normal kill fails, try elevated kill
+        use std::process::Command;
+
+        #[cfg(target_os = "linux")]
+        {
+            let status = Command::new("pkexec")
+                .args(["kill", "-9", &pid.to_string()])
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() { return Ok(()); }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let script = format!("do shell script \"kill -9 {}\" with administrator privileges", pid);
+            let status = Command::new("osascript")
+                .args(["-e", &script])
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() { return Ok(()); }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let status = Command::new("powershell")
+                .args([
+                    "-Command",
+                    &format!("Start-Process taskkill -ArgumentList '/F', '/PID', '{}' -Verb RunAs -WindowStyle Hidden", pid)
+                ])
+                .status()
+                .map_err(|e| e.to_string())?;
+            if status.success() { return Ok(()); }
+        }
+
+        Err("Failed to kill process. Even with elevation, this process might be protected by the system.".to_string())
     } else {
         Err(format!("Process with PID {} not found or already terminated", pid))
     }
@@ -428,99 +466,146 @@ fn get_battery() -> BatteryInfo {
     read_battery()
 }
 
-/// Scans a directory tree and returns the top 50 entries by size.
-/// Emits `scan-progress` events during the scan.
+/// Returns the current scan results and status.
 #[tauri::command]
-fn scan_directory(app: AppHandle, path: String) -> Vec<DiskEntry> {
-    use walkdir::WalkDir;
-    use std::collections::HashMap;
+fn get_scan_results(state: State<SysState>) -> (bool, Vec<DiskEntry>) {
+    let is_scanning = *state.is_scanning.lock().unwrap();
+    let results = state.scan_results.lock().unwrap().clone();
+    (is_scanning, results)
+}
 
+/// Scans a directory tree and returns the top 50 entries by size.
+/// Runs in a background thread to prevent UI freezing.
+/// Emits `scan-progress` and `scan-finished` events.
+#[tauri::command]
+async fn scan_directory(app: AppHandle, state: State<'_, SysState>, path: String) -> Result<(), String> {
     let root = std::path::PathBuf::from(&path);
-    let mut file_sizes: Vec<(std::path::PathBuf, u64, bool)> = Vec::new();
-    let mut dir_sizes: HashMap<std::path::PathBuf, u64> = HashMap::new();
-    let mut scanned: u64 = 0;
+    
+    // 1. Validation
+    if !root.exists() {
+        return Err(format!("The path \"{}\" does not exist.", path));
+    }
+    if !root.is_dir() {
+        return Err(format!("The path \"{}\" is not a directory.", path));
+    }
 
-    // First pass: collect all files and their sizes
-    for entry in WalkDir::new(&root)
-        .follow_links(false)
-        .into_iter()
-        .filter_map(|e| e.ok()) // skip permission errors gracefully
+    // 2. Check if already scanning
     {
-        let meta = match entry.metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        scanned += 1;
-
-        // Emit progress every 200 entries to not flood the channel
-        if scanned % 200 == 0 {
-            let _ = app.emit("scan-progress", ScanProgress {
-                scanned,
-                current_path: entry.path().to_string_lossy().to_string(),
-            });
+        let mut is_scanning = state.is_scanning.lock().unwrap();
+        if *is_scanning {
+            return Err("A scan is already in progress.".to_string());
         }
+        *is_scanning = true;
+    }
 
-        let entry_path = entry.path().to_path_buf();
+    // 3. Clear old results
+    {
+        let mut results = state.scan_results.lock().unwrap();
+        results.clear();
+    }
 
-        if meta.is_file() {
-            let size = meta.len();
-            file_sizes.push((entry_path.clone(), size, false));
+    let handle = app.clone();
+    
+    // 4. Spawn background task
+    tokio::task::spawn_blocking(move || {
+        use walkdir::WalkDir;
+        use std::collections::HashMap;
 
-            // Accumulate into all ancestor directories
-            let mut ancestor = entry_path.parent();
-            while let Some(dir) = ancestor {
-                if !dir.starts_with(&root) { break; }
-                *dir_sizes.entry(dir.to_path_buf()).or_insert(0) += size;
-                ancestor = dir.parent();
+        let state_clone = handle.state::<SysState>();
+        let mut file_sizes: Vec<(std::path::PathBuf, u64, bool)> = Vec::new();
+        let mut dir_sizes: HashMap<std::path::PathBuf, u64> = HashMap::new();
+        let mut scanned: u64 = 0;
+
+        // Use WalkDir with limited depth for initial responsiveness if needed, 
+        // but here we do a full scan as requested.
+        for entry in WalkDir::new(&root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok()) // skip permission errors gracefully
+        {
+            let meta = match entry.metadata() {
+                Ok(m) => m,
+                Err(_) => continue,
+            };
+
+            scanned += 1;
+
+            // Emit progress every 500 entries to prevent event flooding
+            if scanned % 500 == 0 {
+                let _ = handle.emit("scan-progress", ScanProgress {
+                    scanned,
+                    current_path: entry.path().to_string_lossy().to_string(),
+                });
+            }
+
+            let entry_path = entry.path().to_path_buf();
+
+            if meta.is_file() {
+                let size = meta.len();
+                file_sizes.push((entry_path.clone(), size, false));
+
+                // Accumulate into all ancestor directories
+                let mut ancestor = entry_path.parent();
+                while let Some(dir) = ancestor {
+                    if !dir.starts_with(&root) { break; }
+                    *dir_sizes.entry(dir.to_path_buf()).or_insert(0) += size;
+                    ancestor = dir.parent();
+                }
             }
         }
-    }
 
-    // Emit final progress
-    let _ = app.emit("scan-progress", ScanProgress {
-        scanned,
-        current_path: "done".to_string(),
+        // Build result: direct children of root only
+        let mut entries: Vec<DiskEntry> = Vec::new();
+
+        // Add direct children dirs with accumulated sizes
+        for (dir, size) in &dir_sizes {
+            if dir.parent() == Some(root.as_path()) {
+                let name = dir.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                entries.push(DiskEntry {
+                    path: dir.to_string_lossy().to_string(),
+                    name,
+                    size_bytes: *size,
+                    is_dir: true,
+                });
+            }
+        }
+
+        // Add direct child files
+        for (file, size, _) in &file_sizes {
+            if file.parent() == Some(root.as_path()) {
+                let name = file.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                entries.push(DiskEntry {
+                    path: file.to_string_lossy().to_string(),
+                    name,
+                    size_bytes: *size,
+                    is_dir: false,
+                });
+            }
+        }
+
+        // Sort by size descending, return top 50
+        entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+        entries.truncate(50);
+
+        // Update global state for persistence
+        {
+            let mut results = state_clone.scan_results.lock().unwrap();
+            *results = entries.clone();
+        }
+        {
+            let mut is_scanning = state_clone.is_scanning.lock().unwrap();
+            *is_scanning = false;
+        }
+
+        // Emit final results
+        let _ = handle.emit("scan-finished", entries);
     });
 
-    // Build result: direct children of root only (top-level entries)
-    let mut entries: Vec<DiskEntry> = Vec::new();
-
-    // Add direct children dirs with accumulated sizes
-    for (dir, size) in &dir_sizes {
-        // Only include direct children of root
-        if dir.parent() == Some(root.as_path()) {
-            let name = dir.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            entries.push(DiskEntry {
-                path: dir.to_string_lossy().to_string(),
-                name,
-                size_bytes: *size,
-                is_dir: true,
-            });
-        }
-    }
-
-    // Add direct child files
-    for (file, size, _) in &file_sizes {
-        if file.parent() == Some(root.as_path()) {
-            let name = file.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_default();
-            entries.push(DiskEntry {
-                path: file.to_string_lossy().to_string(),
-                name,
-                size_bytes: *size,
-                is_dir: false,
-            });
-        }
-    }
-
-    // Sort by size descending, return top 50
-    entries.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
-    entries.truncate(50);
-    entries
+    Ok(())
 }
 
 /// Returns the rolling buffer of resource usage history.
@@ -1024,6 +1109,8 @@ pub fn run() {
                 sys: Mutex::new(System::new_all()),
                 settings: Mutex::new(settings),
                 history: Mutex::new(VecDeque::with_capacity(60)),
+                scan_results: Mutex::new(Vec::new()),
+                is_scanning: Mutex::new(false),
             });
 
             // Force the window icon for Linux dock
@@ -1123,6 +1210,7 @@ pub fn run() {
             get_settings,
             save_settings,
             scan_directory,
+            get_scan_results,
             delete_path,
             get_history,
         ])
