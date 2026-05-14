@@ -35,6 +35,8 @@ pub enum Commands {
     Disk,
     /// Show battery health and capacity details
     Battery,
+    /// Show system fan speeds
+    Fans,
 }
 
 pub fn run_cli(cli: Cli) {
@@ -43,6 +45,7 @@ pub fn run_cli(cli: Cli) {
         Commands::Processes { top } => show_processes(top, cli.json),
         Commands::Disk => show_disk(cli.json),
         Commands::Battery => show_battery(cli.json),
+        Commands::Fans => show_fans(cli.json),
     }
 }
 
@@ -88,6 +91,7 @@ fn show_status(json: bool) {
     let disk_pct = if disk_total > 0 { (disk_used as f64 / disk_total as f64) * 100.0 } else { 0.0 };
 
     let bat = read_battery();
+    let fans = read_fans();
 
     if json {
         let output = serde_json::json!({
@@ -97,7 +101,8 @@ fn show_status(json: bool) {
             "memory": { "total_bytes": total_mem, "used_bytes": used_mem, "usage_pct": mem_pct },
             "disk": { "total_bytes": disk_total, "used_bytes": disk_used, "usage_pct": disk_pct },
             "temp": { "max_celsius": max_temp },
-            "battery": bat
+            "battery": bat,
+            "fans": fans
         });
         println!("{}", serde_json::to_string_pretty(&output).unwrap());
         return;
@@ -162,12 +167,22 @@ fn show_status(json: bool) {
     // Temp
     let t_bar = bar((max_temp / 100.0 * 100.0).min(100.0), 10);
     let t_color = if max_temp > 80.0 { Color::Red } else if max_temp > 60.0 { Color::Yellow } else { Color::Green };
-    println!("{:<8} {} {:.0}°C · Max recorded {:.0}°C", 
+    println!("{:<8} {} {:.0}°C · Max recorded", 
         "Temp".bold(), 
         t_bar.color(t_color), 
-        max_temp,
-        max_temp // Simplified for one-shot
+        max_temp
     );
+
+    // Fans
+    if !fans.is_empty() {
+        let f_label = if fans.len() == 1 { "Fan" } else { "Fans" };
+        let avg_rpm = fans.iter().map(|f| f.rpm).sum::<u32>() / fans.len() as u32;
+        println!("{:<8} {} sensors detected · avg {} RPM", 
+            f_label.bold(), 
+            fans.len(),
+            avg_rpm
+        );
+    }
 }
 
 fn show_processes(top_n: usize, json: bool) {
@@ -251,6 +266,26 @@ fn show_battery(json: bool) {
     println!("{:<20} {}", "Status:", bat.status);
     if let Some(m) = bat.design_capacity_mwh { println!("{:<20} {} mWh", "Design Cap:", m); }
     if let Some(m) = bat.current_capacity_mwh { println!("{:<20} {} mWh", "Current Cap:", m); }
+}
+
+fn show_fans(json: bool) {
+    let fans = read_fans();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&fans).unwrap());
+        return;
+    }
+
+    if fans.is_empty() {
+        println!("{}", "No fan sensors detected.".yellow());
+        return;
+    }
+
+    println!("{}", "System Cooling & Fans".bold().cyan());
+    println!("{:<25} {:<10}", "LABEL".bold(), "SPEED".bold());
+    println!("{}", "─".repeat(40).dimmed());
+    for f in fans {
+        println!("{:<25} {} RPM", f.label.truncate(24), f.rpm);
+    }
 }
 
 trait BrandColor {

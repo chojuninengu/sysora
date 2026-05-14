@@ -83,6 +83,7 @@ pub struct SystemSnapshot {
     pub hostname: String,
     pub uptime_secs: u64,
     pub cpu_temp: f32,
+    pub system_temp: f32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -162,6 +163,12 @@ pub struct TempReading {
     pub current_celsius: f32,
     pub max_celsius: f32,
     pub critical_celsius: Option<f32>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FanReading {
+    pub label: String,
+    pub rpm: u32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -288,6 +295,55 @@ pub fn read_battery() -> BatteryInfo {
         status: "N/A".to_string(),
         ..Default::default()
     }
+}
+
+pub fn read_fans() -> Vec<FanReading> {
+    let mut fans = Vec::new();
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        let hwmon_path = "/sys/class/hwmon";
+        if let Ok(entries) = fs::read_dir(hwmon_path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let base = entry.path();
+                let name = fs::read_to_string(base.join("name"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                
+                // Look for fan*_input files
+                if let Ok(hw_entries) = fs::read_dir(&base) {
+                    for hw_entry in hw_entries.filter_map(|e| e.ok()) {
+                        let filename = hw_entry.file_name().to_string_lossy().to_string();
+                        if filename.starts_with("fan") && filename.ends_with("_input") {
+                            let prefix = filename.trim_end_matches("_input");
+                            let rpm = fs::read_to_string(hw_entry.path())
+                                .ok()
+                                .and_then(|s| s.trim().parse::<u32>().ok())
+                                .unwrap_or(0);
+                            
+                            if rpm > 0 {
+                                // Try to get a label
+                                let label = fs::read_to_string(base.join(format!("{}_label", prefix)))
+                                    .unwrap_or_else(|_| {
+                                        if !name.is_empty() {
+                                            format!("{} {}", name, prefix.replace("fan", "Fan "))
+                                        } else {
+                                            prefix.replace("fan", "Fan ").to_string()
+                                        }
+                                    })
+                                    .trim()
+                                    .to_string();
+                                
+                                fans.push(FanReading { label, rpm });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    fans
 }
 
 fn resolve_linux_icon(icon_name: &str) -> String {
@@ -505,6 +561,14 @@ fn get_system_info(state: State<SysState>) -> SystemSnapshot {
                 .filter(|c| c.label().to_lowercase().contains("cpu") || c.label().to_lowercase().contains("package"))
                 .filter_map(|c| c.temperature())
                 .fold(0.0, f32::max)
+        },
+        system_temp: {
+            let components = state.components.lock().unwrap();
+            components.iter()
+                .filter(|c| c.label().to_lowercase().contains("mb") || c.label().to_lowercase().contains("motherboard") || c.label().to_lowercase().contains("systin") || c.label().to_lowercase().contains("composite"))
+                .filter_map(|c| c.temperature())
+                .next()
+                .unwrap_or(0.0)
         }
     }
 }
@@ -566,6 +630,12 @@ fn get_temperatures(state: State<SysState>) -> Vec<TempReading> {
             critical_celsius: c.critical(),
         }
     }).collect()
+}
+
+/// Returns all detected fan speeds.
+#[tauri::command]
+fn get_fans() -> Vec<FanReading> {
+    read_fans()
 }
 
 /// Returns the network history for sparklines.
@@ -1567,6 +1637,7 @@ pub fn run() {
             get_scan_results,
             delete_path,
             get_history,
+            get_fans,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");

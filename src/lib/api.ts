@@ -13,6 +13,7 @@ import type {
   NetworkInterface,
   NetworkHistoryPoint,
   TempReading,
+  FanReading,
 } from "@/types";
 
 export const api = {
@@ -24,6 +25,7 @@ export const api = {
   getNetworkStats: () => invoke<NetworkInterface[]>("get_network_stats"),
   getNetworkHistory: () => invoke<NetworkHistoryPoint[]>("get_network_history"),
   getTemperatures: () => invoke<TempReading[]>("get_temperatures"),
+  getFans: () => invoke<FanReading[]>("get_fans"),
   exportReport: (path: string) => invoke<void>("export_report", { path }),
   getTraySnapshot: () => invoke<TraySnapshot>("get_tray_snapshot"),
   getInstalledApps: () => invoke<AppInfo[]>("get_installed_apps"),

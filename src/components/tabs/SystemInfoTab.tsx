@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Monitor, Cpu, MemoryStick, BatteryWarning, Clock, FileText, Download, Loader2, Thermometer } from "lucide-react";
+import { Monitor, Cpu, MemoryStick, BatteryWarning, Clock, FileText, Download, Loader2, Thermometer, Wind } from "lucide-react";
 import { api } from "@/lib/api";
 import { fmtBytes, fmtUptime, healthColor, healthLabel } from "@/lib/utils";
 import { save } from "@tauri-apps/plugin-dialog";
@@ -30,6 +30,7 @@ export function SystemInfoTab() {
   const { data: sys } = useQuery({ queryKey: ["sysInfo"],  queryFn: api.getSystemInfo });
   const { data: bat } = useQuery({ queryKey: ["battery"],  queryFn: api.getBattery });
   const { data: temps } = useQuery({ queryKey: ["temps"], queryFn: api.getTemperatures });
+  const { data: fans } = useQuery({ queryKey: ["fans"], queryFn: api.getFans });
   const { data: settings } = useQuery({ queryKey: ["settings"], queryFn: api.getSettings });
   
   const [exporting, setExporting] = useState(false);
@@ -109,6 +110,15 @@ export function SystemInfoTab() {
               {sys ? fmtTemp(sys.cpu_temp) : "—"}
             </span>
           </div>
+          <div className="flex items-center justify-between py-2.5 border-b border-surface-200 dark:border-white/5 last:border-0">
+            <span className="text-xs text-surface-400 dark:text-white/40">Motherboard</span>
+            <span className={`text-xs font-mono font-bold ${
+              (sys?.system_temp ?? 0) > 60 ? "text-red-600 dark:text-red-400" :
+              "text-emerald-600 dark:text-emerald-400"
+            }`}>
+              {sys && sys.system_temp > 0 ? fmtTemp(sys.system_temp) : "—"}
+            </span>
+          </div>
           <InfoRow label="Usage"  value={sys ? `${sys.cpu_usage.toFixed(1)}%` : "—"} />
         </Section>
 
@@ -157,11 +167,11 @@ export function SystemInfoTab() {
           )}
         </Section>
 
-        {/* Temperatures */}
-        <div className="col-span-2">
+        {/* Temperatures & Fans */}
+        <div className="col-span-2 grid grid-cols-2 gap-4">
           <Section icon={<Thermometer size={15} />} title="Detailed Hardware Sensors">
             {temps && temps.length > 0 ? (
-              <div className="grid grid-cols-2 gap-x-8 gap-y-0.5">
+              <div className="space-y-0.5">
                 {temps.map((t) => (
                   <div key={t.label} className="flex items-center justify-between py-2 border-b border-surface-200 dark:border-white/5 last:border-0">
                     <span className="text-[11px] text-surface-400 dark:text-white/40 truncate max-w-[150px]">{t.label}</span>
@@ -179,7 +189,27 @@ export function SystemInfoTab() {
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-surface-400 dark:text-white/30 py-2">No hardware sensor data available for this platform.</p>
+              <p className="text-xs text-surface-400 dark:text-white/30 py-2">No hardware sensor data available.</p>
+            )}
+          </Section>
+
+          <Section icon={<Wind size={15} />} title="Cooling & Fans">
+            {fans && fans.length > 0 ? (
+              <div className="space-y-0.5">
+                {fans.map((f) => (
+                  <div key={f.label} className="flex items-center justify-between py-2 border-b border-surface-200 dark:border-white/5 last:border-0">
+                    <span className="text-[11px] text-surface-400 dark:text-white/40 truncate max-w-[150px]">{f.label}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-sky-600 dark:text-sky-400">
+                        {f.rpm.toLocaleString()} RPM
+                      </span>
+                      <Wind size={10} className={`text-sky-400/30 ${f.rpm > 2000 ? "animate-spin" : f.rpm > 0 ? "animate-pulse" : ""}`} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-surface-400 dark:text-white/30 py-2">No fan sensors detected (common on some laptops/VMs).</p>
             )}
           </Section>
         </div>

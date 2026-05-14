@@ -22,6 +22,7 @@ export interface SystemSnapshot {
   hostname: string;
   uptime_secs: number;
   cpu_temp: number;
+  system_temp: number;
 }
 
 export interface DiskInfo {
@@ -109,6 +110,11 @@ export interface TempReading {
   current_celsius: number;
   max_celsius: number;
   critical_celsius: number | null;
+}
+
+export interface FanReading {
+  label: string;
+  rpm: number;
 }
 
 export interface HistoryPoint {
