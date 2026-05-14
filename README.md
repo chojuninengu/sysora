@@ -99,6 +99,11 @@ sysora/
 - **Node.js** ≥ 20
 - **Rust** (stable)
 - **Tauri v2 CLI** (`npm install -g @tauri-apps/cli`)
+- **Linux (Ubuntu/Debian) dependencies**:
+  ```bash
+  sudo apt update
+  sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
+  ```
 
 ### Run in development
 
@@ -150,7 +155,7 @@ Sysora distinguishes between two different battery numbers that most tools confu
 
 A battery with **60% health** that is fully charged will only last 60% as long as it did when it was new — even though it shows "100% charge".
 
-This is read from `/sys/class/power_supply/BAT0/` on Linux (`energy_full` vs `energy_full_design`). macOS and Windows native APIs are planned for Phase 2.
+This is read from `/sys/class/power_supply/BAT*/` on Linux (`energy_full` vs `energy_full_design`). macOS and Windows native APIs are supported via the `battery` crate.
 
 ---
 
