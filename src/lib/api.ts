@@ -10,6 +10,8 @@ import type {
   DiskEntry,
   ScanProgress,
   HistoryPoint,
+  NetworkInterface,
+  NetworkHistoryPoint,
 } from "@/types";
 
 export const api = {
@@ -18,6 +20,8 @@ export const api = {
   getSystemInfo: () => invoke<SystemSnapshot>("get_system_info"),
   getDisks: () => invoke<DiskInfo[]>("get_disks"),
   getBattery: () => invoke<BatteryInfo>("get_battery"),
+  getNetworkStats: () => invoke<NetworkInterface[]>("get_network_stats"),
+  getNetworkHistory: () => invoke<NetworkHistoryPoint[]>("get_network_history"),
   getTraySnapshot: () => invoke<TraySnapshot>("get_tray_snapshot"),
   getInstalledApps: () => invoke<AppInfo[]>("get_installed_apps"),
   uninstallApp: (id: string, path: string) => invoke<void>("uninstall_app", { id, path }),
