@@ -302,7 +302,7 @@ pub fn read_battery() -> BatteryInfo {
 }
 
 pub fn read_fans() -> Vec<FanReading> {
-    let mut fans = Vec::new();
+    let fans = Vec::new();
     #[cfg(target_os = "linux")]
     {
         use std::fs;
@@ -1228,7 +1228,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
 }
 
 #[tauri::command]
-fn uninstall_app(id: String, path: String) -> Result<(), String> {
+fn uninstall_app(id: String, _path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
@@ -1552,11 +1552,31 @@ async fn start_refresh_loop(app: AppHandle) {
 fn get_app_icon_data_url(path: String) -> Result<String, String> {
     if path.is_empty() { return Ok(String::new()); }
     
+    let path_lc = path.to_lowercase();
+
+    #[cfg(target_os = "windows")]
+    {
+        // If it's an executable or doesn't have a typical image extension, try windows_icons
+        let is_image = path_lc.ends_with(".png") || path_lc.ends_with(".jpg") || 
+                       path_lc.ends_with(".jpeg") || path_lc.ends_with(".svg") || 
+                       path_lc.ends_with(".ico");
+        
+        if !is_image || path_lc.ends_with(".exe") || path_lc.ends_with(".dll") {
+            let b64 = windows_icons::get_icon_base64_by_path(&path);
+            if !b64.is_empty() {
+                if b64.starts_with("data:") {
+                    return Ok(b64);
+                } else {
+                    return Ok(format!("data:image/png;base64,{}", b64));
+                }
+            }
+        }
+    }
+
     use base64::{Engine as _, engine::general_purpose};
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let b64 = general_purpose::STANDARD.encode(bytes);
     
-    let path_lc = path.to_lowercase();
     let mime = if path_lc.ends_with(".svg") {
         "image/svg+xml"
     } else if path_lc.ends_with(".png") {
