@@ -302,7 +302,7 @@ pub fn read_battery() -> BatteryInfo {
 }
 
 pub fn read_fans() -> Vec<FanReading> {
-    let fans = Vec::new();
+    let mut fans = Vec::new();
     #[cfg(target_os = "linux")]
     {
         use std::fs;
@@ -1228,7 +1228,7 @@ fn get_installed_apps() -> Vec<AppInfo> {
 }
 
 #[tauri::command]
-fn uninstall_app(id: String, _path: String) -> Result<(), String> {
+fn uninstall_app(id: String, path: String) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
