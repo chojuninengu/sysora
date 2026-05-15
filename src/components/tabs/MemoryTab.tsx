@@ -32,7 +32,7 @@ function ProcessRow({
   const colorClass = colors[initial.charCodeAt(0) % colors.length];
 
   return (
-    <div className="grid grid-cols-[28px_1fr_140px_70px_70px_80px] gap-0 items-center px-4 py-2.5 border-b border-surface-200 dark:border-white/5 hover:bg-surface-50 dark:hover:bg-white/3 transition-colors group">
+    <div className="grid grid-cols-[28px_1fr_140px_70px_70px_80px] gap-0 items-center px-4 py-2.5 border-b border-surface-200 dark:border-white/5 hover:bg-surface-100/50 dark:hover:bg-white/5 transition-all duration-200 group">
       <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-semibold ${colorClass}`}>
         {initial}
       </div>
@@ -193,7 +193,7 @@ export function MemoryTab() {
       {/* Process table */}
       <div className="card overflow-hidden">
         {/* Table header */}
-        <div className="grid grid-cols-[28px_1fr_140px_70px_70px_80px] gap-0 px-4 py-2.5 border-b border-surface-200 dark:border-white/5 bg-surface-50 dark:bg-white/2">
+        <div className="grid grid-cols-[28px_1fr_140px_70px_70px_80px] gap-0 px-4 py-2.5 border-b border-surface-200 dark:border-white/5 bg-surface-50/50 dark:bg-black/20 transition-colors">
           <div />
           <p className="pl-3 text-[11px] font-medium text-surface-400 dark:text-white/30 uppercase tracking-widest">Process</p>
           <p className="text-[11px] font-medium text-surface-400 dark:text-white/30 uppercase tracking-widest">Memory</p>
@@ -221,7 +221,7 @@ export function MemoryTab() {
           )}
         </div>
 
-        <div className="px-4 py-2 border-t border-surface-200 dark:border-white/5 bg-surface-50 dark:bg-white/2">
+        <div className="px-4 py-2 border-t border-surface-200 dark:border-white/5 bg-surface-50/50 dark:bg-black/20 transition-colors">
           <p className="text-[10px] text-surface-400 dark:text-white/25">
             {filtered.length} processes · sorted by memory · auto-refreshes every 3s
           </p>

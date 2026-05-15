@@ -19,6 +19,7 @@
     -moz-osx-font-smoothing: grayscale;
     user-select: none;
     @apply bg-surface-50 text-surface-800 dark:bg-surface-900 dark:text-white/90;
+    transition: background-color 0.3s ease, color 0.3s ease;
   }
 
   /* Custom scrollbar */
@@ -42,7 +43,7 @@
   }
 
   .card {
-    @apply bg-white border border-surface-200 rounded-xl dark:bg-surface-800 dark:border-white/5;
+    @apply bg-white dark:bg-surface-800 border border-surface-200 dark:border-white/5 rounded-xl transition-all duration-300;
   }
 
   .card-hover {

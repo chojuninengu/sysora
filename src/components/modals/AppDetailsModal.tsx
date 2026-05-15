@@ -27,20 +27,33 @@ function AppIcon({ icon_path, className = "w-12 h-12 object-contain" }: { icon_p
 }
 
 export function AppDetailsModal({ app, onClose, onUninstall }: Props) {
+  useEffect(() => {
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleEsc);
+    return () => window.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-surface-800 border border-surface-200 dark:border-white/10 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-        {/* Header */}
-        <div className="p-4 border-b border-surface-200 dark:border-white/5 flex items-center justify-between bg-surface-50 dark:bg-white/2">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div 
+        className="w-full max-w-lg bg-white dark:bg-surface-800 border border-surface-200 dark:border-white/5 rounded-xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-surface-200 dark:border-white/5 bg-surface-50/50 dark:bg-surface-900/50">
           <div className="flex items-center gap-3">
              <div className="w-8 h-8 rounded-lg bg-brand-600/20 flex items-center justify-center text-brand-600 dark:text-brand-400">
                 <Info size={16} />
              </div>
-             <h2 className="text-sm font-semibold text-surface-900 dark:text-white/90">Application Details</h2>
+             <h2 className="text-sm font-semibold text-surface-900 dark:text-brand-100">Application Details</h2>
           </div>
           <button 
             onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-surface-100 dark:hover:bg-white/5 text-surface-400 dark:text-white/30 hover:text-surface-900 dark:hover:text-white transition-colors"
+            className="p-1.5 rounded-md hover:bg-surface-100 dark:hover:bg-white/5 text-surface-400 dark:text-brand-300/40 hover:text-surface-900 dark:hover:text-white transition-colors"
           >
             <X size={18} />
           </button>
@@ -53,8 +66,8 @@ export function AppDetailsModal({ app, onClose, onUninstall }: Props) {
                <AppIcon icon_path={app.icon_path} className="w-12 h-12 object-contain" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-xl font-bold text-surface-900 dark:text-white leading-tight mb-1">{app.name}</h3>
-              <p className="text-sm text-surface-400 dark:text-white/40">Version {app.version || "0.1.0"}</p>
+              <h3 className="text-xl font-bold text-surface-900 dark:text-brand-50 leading-tight mb-1">{app.name}</h3>
+              <p className="text-sm text-surface-400 dark:text-white/40 font-medium">Version {app.version || "0.1.0"}</p>
             </div>
           </div>
 
@@ -82,7 +95,7 @@ export function AppDetailsModal({ app, onClose, onUninstall }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-surface-50 dark:bg-white/2 border-t border-surface-200 dark:border-white/5 flex items-center justify-end gap-3">
+        <div className="p-4 bg-surface-50 dark:bg-surface-900/50 border-t border-surface-200 dark:border-white/5 flex items-center justify-end gap-3">
            <button 
              onClick={onClose}
              className="px-4 py-2 text-xs font-medium text-surface-400 dark:text-white/60 hover:text-surface-900 dark:hover:text-white transition-colors"
@@ -109,7 +122,7 @@ function DetailItem({ icon, label, value, isPath }: { icon: React.ReactNode; lab
         {icon}
         {label}
       </div>
-      <div className={`p-2.5 rounded-lg bg-surface-50 dark:bg-white/3 border border-surface-200 dark:border-white/5 text-[11px] text-surface-600 dark:text-white/60 select-text ${isPath ? 'font-mono' : ''} break-all`}>
+      <div className={`p-2.5 rounded-lg bg-surface-50 dark:bg-black/20 border border-surface-200 dark:border-white/5 text-[11px] text-surface-600 dark:text-white/60 select-text ${isPath ? 'font-mono' : ''} break-all shadow-inner`}>
         {value}
       </div>
     </div>
