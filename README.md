@@ -21,7 +21,7 @@ Get the latest stable version (Phase 3) for your operating system:
 You can quickly download and install the latest `.deb` version directly from your terminal:
 
 ```bash
-curl -s https://api.github.com/repos/The-SudoStart/sysora/releases/latest | grep "browser_download_url.*amd64\.deb" | cut -d : -f 2,3 | tr -d \" | wget -qi - && sudo dpkg -i sysora*.deb && rm sysora*.deb
+URL=$(curl -s https://api.github.com/repos/The-SudoStart/sysora/releases/latest | grep -o '"browser_download_url": "[^"]*amd64\.deb"' | cut -d '"' -f 4) && curl -sL "$URL" -o sysora.deb && sudo dpkg -i sysora.deb && rm sysora.deb
 ```
 
 ---
