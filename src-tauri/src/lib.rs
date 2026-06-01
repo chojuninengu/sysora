@@ -9,6 +9,9 @@ use tauri::{
 };
 use tokio::time::{sleep, Duration};
 
+mod db;
+use db::{DbManager, HistoricalPoint};
+
 // ─── Shared system state ────────────────────────────────────────────────────
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone)]
 pub struct AppSettings {
@@ -17,6 +20,9 @@ pub struct AppSettings {
     pub ram_alert_threshold: f32,
     pub cpu_alert_threshold: f32,
     pub start_minimized: bool,
+    pub temp_threshold: f32,
+    pub temp_unit: String,
+    pub theme: String,
 }
 
 impl Default for AppSettings {
@@ -27,6 +33,9 @@ impl Default for AppSettings {
             ram_alert_threshold: 85.0,
             cpu_alert_threshold: 80.0,
             start_minimized: false,
+            temp_threshold: 85.0,
+            temp_unit: "c".to_string(),
+            theme: "system".to_string(),
         }
     }
 }
@@ -44,6 +53,10 @@ pub struct SysState {
     pub history: Mutex<VecDeque<SnapPoint>>,
     pub scan_results: Mutex<Vec<DiskEntry>>,
     pub is_scanning: Mutex<bool>,
+    pub networks: Mutex<sysinfo::Networks>,
+    pub net_history: Mutex<VecDeque<NetworkHistory>>,
+    pub components: Mutex<sysinfo::Components>,
+    pub db: Mutex<DbManager>,
 }
 
 // ─── Data types (serialized to JSON for the frontend) ───────────────────────
@@ -73,6 +86,8 @@ pub struct SystemSnapshot {
     pub kernel_version: String,
     pub hostname: String,
     pub uptime_secs: u64,
+    pub cpu_temp: f32,
+    pub system_temp: f32,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -98,6 +113,26 @@ pub struct BatteryInfo {
     pub time_to_empty_mins: Option<u64>,
 }
 
+#[derive(Debug, Serialize, Clone, Default)]
+pub struct NetworkInterface {
+    pub name: String,
+    pub rx_bytes: u64,
+    pub tx_bytes: u64,
+    pub rx_speed: u64,
+    pub tx_speed: u64,
+    pub total_rx: u64,
+    pub total_tx: u64,
+    pub mac_address: String,
+    pub ip_address: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct NetworkHistory {
+    pub ts: u64,
+    pub rx_speed: u64,
+    pub tx_speed: u64,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct TraySnapshot {
     pub cpu_usage: f32,
@@ -105,6 +140,7 @@ pub struct TraySnapshot {
     pub total_memory: u64,
     pub disk_used_pct: f32,
     pub battery: BatteryInfo,
+    pub network: (u64, u64), // (total_rx_speed, total_tx_speed)
 }
 
 #[derive(Debug, Serialize, Clone, Default)]
@@ -126,6 +162,20 @@ pub struct DiskEntry {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct TempReading {
+    pub label: String,
+    pub current_celsius: f32,
+    pub max_celsius: f32,
+    pub critical_celsius: Option<f32>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct FanReading {
+    pub label: String,
+    pub rpm: u32,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct ScanProgress {
     pub scanned: u64,
     pub current_path: String,
@@ -133,22 +183,37 @@ pub struct ScanProgress {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-fn fmt_bytes(bytes: u64) -> String {
-    const KB: u64 = 1024;
-    const MB: u64 = KB * 1024;
-    const GB: u64 = MB * 1024;
-    if bytes >= GB {
-        format!("{:.2} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else if bytes >= KB {
-        format!("{:.0} KB", bytes as f64 / KB as f64)
+pub fn fmt_bytes(bytes: u64) -> String {
+    if bytes > 1024 * 1024 * 1024 {
+        format!("{:.1} GB", bytes as f64 / (1024.0 * 1024.0 * 1024.0))
+    } else if bytes > 1024 * 1024 {
+        format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
     } else {
-        format!("{} B", bytes)
+        format!("{:.1} KB", bytes as f64 / 1024.0)
     }
 }
 
-fn read_battery() -> BatteryInfo {
+pub fn fmt_uptime(secs: u64) -> String {
+    let days = secs / 86400;
+    let hours = (secs % 86400) / 3600;
+    let mins = (secs % 3600) / 60;
+    if days > 0 {
+        format!("{}d {}h {}m", days, hours, mins)
+    } else if hours > 0 {
+        format!("{}h {}m", hours, mins)
+    } else {
+        format!("{}m", mins)
+    }
+}
+
+pub fn health_label(pct: f32) -> &'static str {
+    if pct >= 90.0 { "Excellent" }
+    else if pct >= 80.0 { "Good" }
+    else if pct >= 50.0 { "Degraded" }
+    else { "Replace Soon" }
+}
+
+pub fn read_battery() -> BatteryInfo {
     #[cfg(target_os = "linux")]
     {
         use std::fs;
@@ -234,6 +299,55 @@ fn read_battery() -> BatteryInfo {
         status: "N/A".to_string(),
         ..Default::default()
     }
+}
+
+pub fn read_fans() -> Vec<FanReading> {
+    let mut fans = Vec::new();
+    #[cfg(target_os = "linux")]
+    {
+        use std::fs;
+        let hwmon_path = "/sys/class/hwmon";
+        if let Ok(entries) = fs::read_dir(hwmon_path) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let base = entry.path();
+                let name = fs::read_to_string(base.join("name"))
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+                
+                // Look for fan*_input files
+                if let Ok(hw_entries) = fs::read_dir(&base) {
+                    for hw_entry in hw_entries.filter_map(|e| e.ok()) {
+                        let filename = hw_entry.file_name().to_string_lossy().to_string();
+                        if filename.starts_with("fan") && filename.ends_with("_input") {
+                            let prefix = filename.trim_end_matches("_input");
+                            let rpm = fs::read_to_string(hw_entry.path())
+                                .ok()
+                                .and_then(|s| s.trim().parse::<u32>().ok())
+                                .unwrap_or(0);
+                            
+                            if rpm > 0 {
+                                // Try to get a label
+                                let label = fs::read_to_string(base.join(format!("{}_label", prefix)))
+                                    .unwrap_or_else(|_| {
+                                        if !name.is_empty() {
+                                            format!("{} {}", name, prefix.replace("fan", "Fan "))
+                                        } else {
+                                            prefix.replace("fan", "Fan ").to_string()
+                                        }
+                                    })
+                                    .trim()
+                                    .to_string();
+                                
+                                fans.push(FanReading { label, rpm });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    fans
 }
 
 fn resolve_linux_icon(icon_name: &str) -> String {
@@ -444,6 +558,22 @@ fn get_system_info(state: State<SysState>) -> SystemSnapshot {
         kernel_version: System::kernel_version().unwrap_or_default(),
         hostname: System::host_name().unwrap_or_default(),
         uptime_secs: System::uptime(),
+        cpu_temp: {
+            let mut components = state.components.lock().unwrap();
+            components.refresh(true);
+            components.iter()
+                .filter(|c| c.label().to_lowercase().contains("cpu") || c.label().to_lowercase().contains("package"))
+                .filter_map(|c| c.temperature())
+                .fold(0.0, f32::max)
+        },
+        system_temp: {
+            let components = state.components.lock().unwrap();
+            components.iter()
+                .filter(|c| c.label().to_lowercase().contains("mb") || c.label().to_lowercase().contains("motherboard") || c.label().to_lowercase().contains("systin") || c.label().to_lowercase().contains("composite"))
+                .filter_map(|c| c.temperature())
+                .next()
+                .unwrap_or(0.0)
+        }
     }
 }
 
@@ -467,6 +597,250 @@ fn get_disks() -> Vec<DiskInfo> {
             }
         })
         .collect()
+}
+
+/// Returns all network interfaces and their current stats.
+#[tauri::command]
+fn get_network_stats(state: State<SysState>) -> Vec<NetworkInterface> {
+    let mut networks = state.networks.lock().unwrap();
+    networks.refresh(true);
+    
+    networks.iter().map(|(name, data)| {
+        NetworkInterface {
+            name: name.clone(),
+            rx_bytes: data.received(),
+            tx_bytes: data.transmitted(),
+            rx_speed: data.received(), // Since we refresh every X seconds, this is raw for now
+            tx_speed: data.transmitted(),
+            total_rx: data.total_received(),
+            total_tx: data.total_transmitted(),
+            mac_address: data.mac_address().to_string(),
+            ip_address: data.ip_networks().iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", "),
+        }
+    }).collect()
+}
+
+/// Returns historical trend data for the last N hours.
+#[tauri::command]
+fn get_historical_trends(state: State<SysState>, hours: u32) -> Result<Vec<HistoricalPoint>, String> {
+    let db = state.db.lock().unwrap();
+    db.get_history(hours).map_err(|e| e.to_string())
+}
+
+/// Clears all historical data from the database.
+#[tauri::command]
+fn clear_history(state: State<SysState>) -> Result<(), String> {
+    let db = state.db.lock().unwrap();
+    db.clear().map_err(|e| e.to_string())
+}
+
+/// Returns the current database size in bytes and number of records.
+#[tauri::command]
+fn get_db_stats(state: State<SysState>) -> Result<(u64, usize), String> {
+    let db = state.db.lock().unwrap();
+    let size = db.get_db_size().map_err(|e| e.to_string())?;
+    let count = db.get_count().map_err(|e| e.to_string())?;
+    Ok((size, count))
+}
+
+/// Returns all detected temperature sensors.
+#[tauri::command]
+fn get_temperatures(state: State<SysState>) -> Vec<TempReading> {
+    let mut components = state.components.lock().unwrap();
+    components.refresh(true);
+    
+    components.iter().map(|c| {
+        TempReading {
+            label: c.label().to_string(),
+            current_celsius: c.temperature().unwrap_or(0.0),
+            max_celsius: c.max().unwrap_or(0.0),
+            critical_celsius: c.critical(),
+        }
+    }).collect()
+}
+
+/// Returns all detected fan speeds.
+#[tauri::command]
+fn get_fans() -> Vec<FanReading> {
+    read_fans()
+}
+
+/// Returns the network history for sparklines.
+#[tauri::command]
+fn get_network_history(state: State<SysState>) -> Vec<NetworkHistory> {
+    state.net_history.lock().unwrap().iter().cloned().collect()
+}
+
+/// Exports a full system report as a PDF to the specified path.
+#[tauri::command]
+fn export_report(state: State<SysState>, path: String) -> Result<(), String> {
+    use printpdf::*;
+    use std::fs::File;
+    use std::io::BufWriter;
+
+    // 1. GATHER ALL DATA
+    let mut sys = state.sys.lock().unwrap();
+    sys.refresh_all();
+
+    let hostname = System::host_name().unwrap_or_else(|| "Unknown".to_string());
+    let os = format!("{} {}", System::name().unwrap_or_default(), System::os_version().unwrap_or_default());
+    let kernel = System::kernel_version().unwrap_or_default();
+    let uptime = fmt_uptime(System::uptime());
+    
+    let cpu_brand = sys.cpus().first().map(|c| c.brand().to_string()).unwrap_or_default();
+    let cpu_cores = sys.cpus().len();
+    
+    let total_ram = sys.total_memory();
+    let used_ram = sys.used_memory();
+    
+    let battery = read_battery();
+    
+    let mut disks_data = Vec::new();
+    let disks = sysinfo::Disks::new_with_refreshed_list();
+    for disk in &disks {
+        disks_data.push((
+            disk.mount_point().to_string_lossy().to_string(),
+            disk.total_space(),
+            disk.available_space(),
+        ));
+    }
+
+    let mut networks_data = Vec::new();
+    {
+        let mut networks = state.networks.lock().unwrap();
+        networks.refresh(true);
+        for (name, data) in networks.iter() {
+            networks_data.push((name.clone(), data.total_received(), data.total_transmitted()));
+        }
+    }
+
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // 2. GENERATE PDF
+    let (doc, page1, layer1) = PdfDocument::new("Sysora Machine Report", Mm(210.0), Mm(297.0), "Base");
+    let layer = doc.get_page(page1).get_layer(layer1);
+
+    // Font selection (platform-specific fallbacks)
+    let font_paths = if cfg!(target_os = "windows") {
+        vec!["C:\\Windows\\Fonts\\arial.ttf", "C:\\Windows\\Fonts\\segoeui.ttf"]
+    } else if cfg!(target_os = "macos") {
+        vec!["/Library/Fonts/Arial.ttf", "/System/Library/Fonts/Helvetica.ttc", "/System/Library/Fonts/Cache/Avenir.ttc"]
+    } else {
+        vec![
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf"
+        ]
+    };
+
+    let mut font_loaded = None;
+    for fp in font_paths {
+        if std::path::Path::new(fp).exists() {
+            if let Ok(f) = File::open(fp) {
+                if let Ok(f_ref) = doc.add_external_font(f) {
+                    font_loaded = Some(f_ref);
+                    break;
+                }
+            }
+        }
+    }
+
+    let font = font_loaded.ok_or_else(|| "Could not find a suitable system font for PDF generation (DejaVuSans or Arial required).".to_string())?;
+
+    let mut y_pos = 280.0;
+
+    // Helper to draw text
+    let draw_text = |layer: &PdfLayerReference, text: &str, size: f32, x: f32, y: f32, font: &IndirectFontRef| {
+        layer.use_text(text, size, Mm(x), Mm(y), font);
+    };
+
+    // Header
+    layer.set_fill_color(Color::Rgb(Rgb::new(0.5, 0.2, 0.9, None))); // Brand purple
+    draw_text(&layer, "SYSORA MACHINE REPORT", 20.0, 20.0, y_pos, &font);
+    y_pos -= 10.0;
+    layer.set_fill_color(Color::Rgb(Rgb::new(0.4, 0.4, 0.4, None)));
+    draw_text(&layer, &format!("Generated on {} for {}", timestamp, hostname), 10.0, 20.0, y_pos, &font);
+    y_pos -= 20.0;
+
+    // Sections
+    let draw_section_header = |layer: &PdfLayerReference, title: &str, y: &mut f32| {
+        layer.set_fill_color(Color::Rgb(Rgb::new(0.2, 0.2, 0.2, None)));
+        layer.use_text(title, 14.0, Mm(20.0), Mm(*y), &font);
+        *y -= 2.0;
+        // Line
+        layer.set_outline_color(Color::Rgb(Rgb::new(0.8, 0.8, 0.8, None)));
+        layer.set_outline_thickness(0.5);
+        let line = vec![(Point::new(Mm(20.0), Mm(*y)), false), (Point::new(Mm(190.0), Mm(*y)), false)];
+        layer.add_line(Line { points: line, is_closed: false });
+        *y -= 10.0;
+    };
+
+    let draw_row = |layer: &PdfLayerReference, label: &str, value: &str, y: &mut f32| {
+        layer.set_fill_color(Color::Rgb(Rgb::new(0.5, 0.5, 0.5, None)));
+        layer.use_text(label, 10.0, Mm(25.0), Mm(*y), &font);
+        layer.set_fill_color(Color::Rgb(Rgb::new(0.1, 0.1, 0.1, None)));
+        layer.use_text(value, 10.0, Mm(70.0), Mm(*y), &font);
+        *y -= 8.0;
+    };
+
+    // 1. System
+    draw_section_header(&layer, "SYSTEM SPECIFICATIONS", &mut y_pos);
+    draw_row(&layer, "Operating System", &os, &mut y_pos);
+    draw_row(&layer, "Kernel Version", &kernel, &mut y_pos);
+    draw_row(&layer, "Hostname", &hostname, &mut y_pos);
+    draw_row(&layer, "Uptime", &uptime, &mut y_pos);
+    y_pos -= 5.0;
+
+    // 2. Processor
+    draw_section_header(&layer, "PROCESSOR (CPU)", &mut y_pos);
+    draw_row(&layer, "Model", &cpu_brand, &mut y_pos);
+    draw_row(&layer, "Cores", &format!("{} logical cores", cpu_cores), &mut y_pos);
+    y_pos -= 5.0;
+
+    // 3. Memory
+    draw_section_header(&layer, "MEMORY (RAM)", &mut y_pos);
+    draw_row(&layer, "Total RAM", &fmt_bytes(total_ram), &mut y_pos);
+    draw_row(&layer, "Used RAM", &fmt_bytes(used_ram), &mut y_pos);
+    draw_row(&layer, "Free RAM", &fmt_bytes(total_ram - used_ram), &mut y_pos);
+    y_pos -= 5.0;
+
+    // 4. Storage
+    draw_section_header(&layer, "STORAGE (DISKS)", &mut y_pos);
+    for (mount, total, avail) in disks_data {
+        let used = total - avail;
+        let pct = if total > 0 { (used as f64 / total as f64) * 100.0 } else { 0.0 };
+        draw_row(&layer, &mount, &format!("{} used of {} ({:.1}%)", fmt_bytes(used), fmt_bytes(total), pct), &mut y_pos);
+        if y_pos < 30.0 { break; }
+    }
+    y_pos -= 5.0;
+
+    // 5. Battery
+    if battery.present {
+        draw_section_header(&layer, "BATTERY HEALTH", &mut y_pos);
+        draw_row(&layer, "Health", &format!("{:.0}% — {}", battery.health_percent, health_label(battery.health_percent)), &mut y_pos);
+        draw_row(&layer, "Cycle Count", &format!("{} cycles", battery.cycle_count.unwrap_or(0)), &mut y_pos);
+        draw_row(&layer, "Status", &battery.status, &mut y_pos);
+        y_pos -= 5.0;
+    }
+
+    // 6. Network
+    if y_pos > 40.0 {
+        draw_section_header(&layer, "NETWORK INTERFACES", &mut y_pos);
+        for (name, rx, tx) in networks_data.iter().take(5) {
+            draw_row(&layer, name, &format!("Total RX: {} | Total TX: {}", fmt_bytes(*rx), fmt_bytes(*tx)), &mut y_pos);
+            if y_pos < 30.0 { break; }
+        }
+    }
+
+    // Footer
+    layer.set_fill_color(Color::Rgb(Rgb::new(0.7, 0.7, 0.7, None)));
+    layer.use_text("Generated by Sysora — Open Source System Manager", 8.0, Mm(20.0), Mm(10.0), &font);
+
+    // Save
+    let file = File::create(path).map_err(|e| e.to_string())?;
+    doc.save(&mut BufWriter::new(file)).map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 /// Returns battery info (health, charge, cycles).
@@ -649,6 +1023,17 @@ fn get_tray_snapshot(state: State<SysState>) -> TraySnapshot {
         total_memory: sys.total_memory(),
         battery: read_battery(),
         disk_used_pct,
+        network: {
+            let mut networks = state.networks.lock().unwrap();
+            networks.refresh(true);
+            let mut rx = 0;
+            let mut tx = 0;
+            for (_, data) in networks.iter() {
+                rx += data.received();
+                tx += data.transmitted();
+            }
+            (rx, tx)
+        }
     }
 }
 
@@ -947,6 +1332,10 @@ fn delete_path(path: String) -> Result<(), String> {
     }
 }
 
+fn get_db_path(app: &AppHandle) -> std::path::PathBuf {
+    app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("history.db")
+}
+
 fn get_settings_path(app: &AppHandle) -> std::path::PathBuf {
     app.path().app_data_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("settings.json")
 }
@@ -988,15 +1377,18 @@ async fn start_refresh_loop(app: AppHandle) {
     use std::time::{Instant, Duration as StdDuration};
 
     let mut last_notification = Instant::now() - StdDuration::from_secs(60);
+    let mut last_db_snapshot = Instant::now() - StdDuration::from_secs(60);
+    let mut last_prune = Instant::now() - StdDuration::from_secs(3600); // Prune once an hour
 
     loop {
-        let (interval, ram_threshold, cpu_threshold) = {
+        let (interval, ram_threshold, cpu_threshold, temp_threshold) = {
             let state = app.state::<SysState>();
             let settings = state.settings.lock().unwrap();
             (
                 settings.refresh_interval_secs,
                 settings.ram_alert_threshold,
                 settings.cpu_alert_threshold,
+                settings.temp_threshold,
             )
         };
 
@@ -1023,12 +1415,39 @@ async fn start_refresh_loop(app: AppHandle) {
             0.0
         };
 
-        // Record history point
+        // Check Network usage
+        let mut total_rx = 0;
+        let mut total_tx = 0;
         {
-            let ts = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
+            let mut networks = state.networks.lock().unwrap();
+            networks.refresh(true);
+            for (_, data) in networks.iter() {
+                total_rx += data.received();
+                total_tx += data.transmitted();
+            }
+        }
+
+        // Check Temperatures
+        let mut max_temp: f32 = 0.0;
+        {
+            let mut components = state.components.lock().unwrap();
+            components.refresh(true);
+            for c in components.iter() {
+                if let Some(t) = c.temperature() {
+                    if t > max_temp {
+                        max_temp = t;
+                    }
+                }
+            }
+        }
+
+        // Record history point
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        {
             let mut hist = state.history.lock().unwrap();
             hist.push_back(SnapPoint {
                 ts,
@@ -1037,6 +1456,19 @@ async fn start_refresh_loop(app: AppHandle) {
             });
             if hist.len() > 60 {
                 hist.pop_front();
+            }
+        }
+
+        // Record network history
+        {
+            let mut net_hist = state.net_history.lock().unwrap();
+            net_hist.push_back(NetworkHistory {
+                ts,
+                rx_speed: total_rx,
+                tx_speed: total_tx,
+            });
+            if net_hist.len() > 60 {
+                net_hist.pop_front();
             }
         }
 
@@ -1056,6 +1488,13 @@ async fn start_refresh_loop(app: AppHandle) {
                     .body(format!("RAM usage is at {:.1}%", ram_usage))
                     .show();
                 triggered = true;
+            } else if max_temp > temp_threshold {
+                let _ = app.notification()
+                    .builder()
+                    .title("High Temperature Alert")
+                    .body(format!("Hardware sensor reached {:.1}°C", max_temp))
+                    .show();
+                triggered = true;
             }
 
             if triggered {
@@ -1064,6 +1503,48 @@ async fn start_refresh_loop(app: AppHandle) {
         }
 
         let _ = app.emit("process-update", ());
+        let _ = app.emit("network-update", ());
+
+        // ─── Database recording (1m interval) ───
+        if last_db_snapshot.elapsed() >= StdDuration::from_secs(60) {
+            let mut disks = sysinfo::Disks::new_with_refreshed_list();
+            disks.refresh(true);
+            let mut disk_used = 0;
+            let mut disk_total = 0;
+            for d in disks.iter() {
+                disk_total += d.total_space();
+                disk_used += d.total_space() - d.available_space();
+            }
+
+            let max_temp = {
+                let mut comps = state.components.lock().unwrap();
+                comps.refresh(true);
+                comps.iter().filter_map(|c| c.temperature()).fold(0.0, f32::max)
+            };
+
+            let point = HistoricalPoint {
+                ts,
+                cpu_pct: cpu_usage,
+                ram_used: used_mem,
+                ram_total: total_mem,
+                disk_used,
+                disk_total,
+                cpu_temp: max_temp,
+            };
+
+            {
+                let db = state.db.lock().unwrap();
+                let _ = db.save_snapshot(&point);
+            }
+            last_db_snapshot = Instant::now();
+        }
+
+        // ─── Auto-pruning (30 days) ───
+        if last_prune.elapsed() >= StdDuration::from_secs(3600) {
+            let db = state.db.lock().unwrap();
+            let _ = db.prune(30);
+            last_prune = Instant::now();
+        }
     }
 }
 
@@ -1071,11 +1552,31 @@ async fn start_refresh_loop(app: AppHandle) {
 fn get_app_icon_data_url(path: String) -> Result<String, String> {
     if path.is_empty() { return Ok(String::new()); }
     
+    let path_lc = path.to_lowercase();
+
+    #[cfg(target_os = "windows")]
+    {
+        // If it's an executable or doesn't have a typical image extension, try windows_icons
+        let is_image = path_lc.ends_with(".png") || path_lc.ends_with(".jpg") || 
+                       path_lc.ends_with(".jpeg") || path_lc.ends_with(".svg") || 
+                       path_lc.ends_with(".ico");
+        
+        if !is_image || path_lc.ends_with(".exe") || path_lc.ends_with(".dll") {
+            let b64 = windows_icons::get_icon_base64_by_path(&path);
+            if !b64.is_empty() {
+                if b64.starts_with("data:") {
+                    return Ok(b64);
+                } else {
+                    return Ok(format!("data:image/png;base64,{}", b64));
+                }
+            }
+        }
+    }
+
     use base64::{Engine as _, engine::general_purpose};
     let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
     let b64 = general_purpose::STANDARD.encode(bytes);
     
-    let path_lc = path.to_lowercase();
     let mime = if path_lc.ends_with(".svg") {
         "image/svg+xml"
     } else if path_lc.ends_with(".png") {
@@ -1099,6 +1600,7 @@ fn get_app_icon_data_url(path: String) -> Result<String, String> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_notification::init())
         .on_window_event(|window, event| match event {
@@ -1114,12 +1616,22 @@ pub fn run() {
             let args: Vec<String> = std::env::args().collect();
             let is_minimized = args.iter().any(|a| a == "--minimized") || start_minimized;
 
+            let db_path = get_db_path(app.handle());
+            if let Some(parent) = db_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let db_manager = DbManager::new(db_path).expect("Failed to initialize database");
+
             app.manage(SysState {
                 sys: Mutex::new(System::new_all()),
                 settings: Mutex::new(settings),
                 history: Mutex::new(VecDeque::with_capacity(60)),
                 scan_results: Mutex::new(Vec::new()),
                 is_scanning: Mutex::new(false),
+                networks: Mutex::new(sysinfo::Networks::new_with_refreshed_list()),
+                net_history: Mutex::new(VecDeque::with_capacity(60)),
+                components: Mutex::new(sysinfo::Components::new_with_refreshed_list()),
+                db: Mutex::new(db_manager),
             });
 
             // Force the window icon for Linux dock
@@ -1212,6 +1724,10 @@ pub fn run() {
             get_system_info,
             get_disks,
             get_battery,
+            get_network_stats,
+            get_network_history,
+            get_temperatures,
+            export_report,
             get_tray_snapshot,
             get_installed_apps,
             uninstall_app,
@@ -1222,6 +1738,10 @@ pub fn run() {
             get_scan_results,
             delete_path,
             get_history,
+            get_fans,
+            get_historical_trends,
+            clear_history,
+            get_db_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running sysora");

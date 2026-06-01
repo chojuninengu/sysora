@@ -19,6 +19,8 @@
     "notification:allow-request-permission",
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled"
+    "autostart:allow-is-enabled",
+    "dialog:allow-save",
+    "dialog:default"
   ]
 }

@@ -21,6 +21,8 @@ export interface SystemSnapshot {
   kernel_version: string;
   hostname: string;
   uptime_secs: number;
+  cpu_temp: number;
+  system_temp: number;
 }
 
 export interface DiskInfo {
@@ -50,6 +52,7 @@ export interface TraySnapshot {
   total_memory: number;
   disk_used_pct: number;
   battery: BatteryInfo;
+  network: [number, number];
 }
 
 export interface AppInfo {
@@ -67,6 +70,9 @@ export interface AppSettings {
   ram_alert_threshold: number;
   cpu_alert_threshold: number;
   start_minimized: boolean;
+  temp_threshold: number;
+  temp_unit: "c" | "f";
+  theme: "dark" | "light" | "system";
 }
 
 export interface DiskEntry {
@@ -76,9 +82,49 @@ export interface DiskEntry {
   is_dir: boolean;
 }
 
+export interface NetworkInterface {
+  name: string;
+  rx_bytes: number;
+  tx_bytes: number;
+  rx_speed: number;
+  tx_speed: number;
+  total_rx: number;
+  total_tx: number;
+  mac_address: string;
+  ip_address: string;
+}
+
+export interface NetworkHistoryPoint {
+  ts: number;
+  rx_speed: number;
+  tx_speed: number;
+}
+
 export interface ScanProgress {
   scanned: number;
   current_path: string;
+}
+
+export interface TempReading {
+  label: string;
+  current_celsius: number;
+  max_celsius: number;
+  critical_celsius: number | null;
+}
+
+export interface FanReading {
+  label: string;
+  rpm: number;
+}
+
+export interface HistoricalPoint {
+  ts: number;
+  cpu_pct: number;
+  ram_used: number;
+  ram_total: number;
+  disk_used: number;
+  disk_total: number;
+  cpu_temp: number;
 }
 
 export interface HistoryPoint {
@@ -90,7 +136,9 @@ export interface HistoryPoint {
 export type TabId =
   | "memory"
   | "processes"
+  | "network"
   | "apps"
   | "disk"
+  | "history"
   | "system-info"
   | "settings";
